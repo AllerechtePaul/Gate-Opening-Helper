@@ -7,7 +7,7 @@ from discord.ext import commands
 # EINSTELLUNGEN (Exakte Rollennamen)
 # =====================================================================
 # Liest den Token sicher aus den Railway-Variablen ab:
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("DISCORD_TOKEN")
 
 # Rollen, die bei /participate IGNORIERT werden:
 EXCLUDED_ROLES = [
