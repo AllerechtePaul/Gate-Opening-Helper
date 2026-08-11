@@ -210,6 +210,111 @@ if __name__ == "__main__":
         print("CRITICAL ERROR: No DISCORD_TOKEN found in environment variables!")
     else:
         bot.run(BOT_TOKEN)
+
+    if not participant_role or not former_role:
+        await interaction.followup.send(
+            f"❌ Missing role(s): Please ensure both **'@{PARTICIPANT_ROLE_NAME}'** "
+            f"and **'@{FORMER_PARTICIPANT_ROLE_NAME}'** exist on this server!",
+            ephemeral=True
+        )
+        return
+
+    # 1. Swap roles for channel members
+    swapped_count = 0
+    for member in channel.members:
+        if member.bot:
+            continue
+
+        if participant_role in member.roles:
+            try:
+                await member.remove_roles(participant_role)
+                await member.add_roles(former_role)
+                swapped_count += 1
+            except discord.Forbidden:
+                print(f"Error: Could not update roles for {member.name}.")
+
+    # 2. Rename channel with ✅ prefix
+    channel_renamed = False
+    
+    current_name = channel.name
+    if current_name.startswith("❗️-"):
+        current_name = current_name[2:]
+    elif current_name.startswith("❗️"):
+        current_name = current_name[1:]
+
+    if not current_name.startswith("✅"):
+        new_name = f"✅-{current_name}"
+        try:
+            await channel.edit(name=new_name)
+            channel_renamed = True
+        except discord.Forbidden:
+            pass
+
+    msg = f"✅ Roles updated from `@{PARTICIPANT_ROLE_NAME}` to `@{FORMER_PARTICIPANT_ROLE_NAME}` for **{swapped_count} user(s)**."
+    if channel_renamed:
+        msg += f"\n🏷️ Ticket renamed to **{new_name}**."
+    else:
+        msg += "\n⚠️ Ticket already has the ✅ mark."
+
+    await interaction.followup.send(msg, ephemeral=True)
+
+
+# -------------------------------------------------------------------
+# 3. COMMAND: /sayall
+# Sends broadcast to uncategorized tickets or a specific category ID
+# -------------------------------------------------------------------
+@bot.tree.command(name="sayall", description="Sends a message to tickets or a specific category")
+@app_commands.describe(
+    message="The message to send",
+    category_id="OPTIONAL: Category ID (leave empty for uncategorized tickets)"
+)
+async def sayall(
+    interaction: discord.Interaction, 
+    message: str, 
+    category_id: str = None
+):
+    await interaction.response.defer(ephemeral=True)
+
+    guild = interaction.guild
+    sent_count = 0
+
+    target_category_id = None
+    if category_id:
+        try:
+            target_category_id = int(category_id.strip())
+        except ValueError:
+            await interaction.followup.send("❌ Invalid Category ID! It must contain numbers only.", ephemeral=True)
+            return
+
+    for channel in guild.text_channels:
+        is_target = False
+
+        if target_category_id is not None:
+            if channel.category and channel.category.id == target_category_id:
+                is_target = True
+        else:
+            if channel.category is None:
+                is_target = True
+
+        if is_target:
+            try:
+                await channel.send(message)
+                sent_count += 1
+            except discord.Forbidden:
+                pass
+
+    if target_category_id:
+        await interaction.followup.send(f"📢 Message successfully sent to **{sent_count} channel(s)** in the specified category!", ephemeral=True)
+    else:
+        await interaction.followup.send(f"📢 Message successfully sent to **{sent_count} uncategorized ticket(s)**!", ephemeral=True)
+
+
+# Start Bot
+if __name__ == "__main__":
+    if not BOT_TOKEN:
+        print("CRITICAL ERROR: No DISCORD_TOKEN found in environment variables!")
+    else:
+        bot.run(BOT_TOKEN)
         if member.bot:
             continue
 
