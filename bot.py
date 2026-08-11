@@ -4,11 +4,11 @@ from discord import app_commands
 from discord.ext import commands
 
 # =====================================================================
-# EINSTELLUNGEN
+# SETTINGS
 # =====================================================================
 BOT_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# Rollen, die bei /participate IGNORIERT werden:
+# Roles ignored by /participate:
 EXCLUDED_ROLES = [
     "Participant",
     "Former Participant",
@@ -18,7 +18,7 @@ EXCLUDED_ROLES = [
     "Ticket King"
 ]
 
-# Rollennamen für /participate und /paid:
+# Role names:
 PARTICIPANT_ROLE_NAME = "Participant"
 FORMER_PARTICIPANT_ROLE_NAME = "Former Participant"
 # =====================================================================
@@ -26,27 +26,27 @@ FORMER_PARTICIPANT_ROLE_NAME = "Former Participant"
 class EventBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
-        intents.members = True  # Benötigt für Rollen-Abfragen & -Änderungen
+        intents.members = True
         intents.guilds = True
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
         await self.tree.sync()
-        print("Slash-Commands wurden erfolgreich synchronisiert!")
+        print("Slash commands synced successfully!")
 
 bot = EventBot()
 
 @bot.event
 async def on_ready():
-    print(f"Bot ist online! Eingeloggt als: {bot.user.name}")
+    print(f"Bot is online! Logged in as: {bot.user.name}")
     print("-----------------------------------------------------")
 
 
 # -------------------------------------------------------------------
-# 1. BEFEHL: /participate
+# 1. COMMAND: /participate
+# Adds ❗️ to channel name & assigns @Participant role
 # -------------------------------------------------------------------
-@bot.tree.command(name="participate", description="Vergibt die Participant-Rolle an neue Teilnehmer im Ticket")
-@app_commands.checks.has_permissions(administrator=True)
+@bot.tree.command(name="participate", description="Assigns the Participant role and adds ❗️ to the ticket name")
 async def participate(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
@@ -55,11 +55,11 @@ async def participate(interaction: discord.Interaction):
 
     target_role = discord.utils.get(guild.roles, name=PARTICIPANT_ROLE_NAME)
     if not target_role:
-        await interaction.followup.send(f"❌ Die Rolle **'@{PARTICIPANT_ROLE_NAME}'** wurde auf dem Server nicht gefunden!", ephemeral=True)
+        await interaction.followup.send(f"❌ Role **'@{PARTICIPANT_ROLE_NAME}'** was not found on this server!", ephemeral=True)
         return
 
+    # 1. Assign role to eligible members
     assigned_count = 0
-
     for member in channel.members:
         if member.bot:
             continue
@@ -73,38 +73,143 @@ async def participate(interaction: discord.Interaction):
                 await member.add_roles(target_role)
                 assigned_count += 1
             except discord.Forbidden:
-                print(f"Fehler: Rolle konnte an {member.name} nicht vergeben werden.")
+                print(f"Error: Could not assign role to {member.name}.")
 
-    await interaction.followup.send(f"✅ Rolle **{target_role.name}** an **{assigned_count}** neue Teilnehmer vergeben!", ephemeral=True)
+    # 2. Add ❗️ prefix to channel name (if not already present)
+    channel_renamed = False
+    if not channel.name.startswith("❗️"):
+        new_name = f"❗️-{channel.name}"
+        try:
+            await channel.edit(name=new_name)
+            channel_renamed = True
+        except discord.Forbidden:
+            pass
+
+    msg = f"✅ Role **@{target_role.name}** assigned to **{assigned_count}** new participant(s)!"
+    if channel_renamed:
+        msg += f"\n🏷️ Ticket renamed to **{new_name}**."
+
+    await interaction.followup.send(msg, ephemeral=True)
 
 
 # -------------------------------------------------------------------
-# 2. BEFEHL: /paid
-# Benennt den Kanal um & wechselt @Participant zu @Former Participant
+# 2. COMMAND: /paid
+# Changes @Participant to @Former Participant & adds ✅ to ticket name
 # -------------------------------------------------------------------
-@bot.tree.command(name="paid", description="Markiert das Ticket als bezahlt und wandelt Participant zu Former Participant um")
-@app_commands.checks.has_permissions(administrator=True)
+@bot.tree.command(name="paid", description="Marks ticket as paid and converts Participant to Former Participant")
 async def paid(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     guild = interaction.guild
     channel = interaction.channel
 
-    # Rollen auf dem Server suchen
     participant_role = discord.utils.get(guild.roles, name=PARTICIPANT_ROLE_NAME)
     former_role = discord.utils.get(guild.roles, name=FORMER_PARTICIPANT_ROLE_NAME)
 
     if not participant_role or not former_role:
         await interaction.followup.send(
-            f"❌ Fehlende Rolle(n): Bitte stelle sicher, dass **'@{PARTICIPANT_ROLE_NAME}'** "
-            f"und **'@{FORMER_PARTICIPANT_ROLE_NAME}'** auf dem Server existieren!",
+            f"❌ Missing role(s): Please ensure both **'@{PARTICIPANT_ROLE_NAME}'** "
+            f"and **'@{FORMER_PARTICIPANT_ROLE_NAME}'** exist on this server!",
             ephemeral=True
         )
         return
 
-    # 1. Rollen tauschen für alle Mitglieder in diesem Kanal
+    # 1. Swap roles for channel members
     swapped_count = 0
     for member in channel.members:
+        if member.bot:
+            continue
+
+        if participant_role in member.roles:
+            try:
+                await member.remove_roles(participant_role)
+                await member.add_roles(former_role)
+                swapped_count += 1
+            except discord.Forbidden:
+                print(f"Error: Could not update roles for {member.name}.")
+
+    # 2. Rename channel with ✅ prefix
+    channel_renamed = False
+    
+    current_name = channel.name
+    if current_name.startswith("❗️-"):
+        current_name = current_name[2:]
+    elif current_name.startswith("❗️"):
+        current_name = current_name[1:]
+
+    if not current_name.startswith("✅"):
+        new_name = f"✅-{current_name}"
+        try:
+            await channel.edit(name=new_name)
+            channel_renamed = True
+        except discord.Forbidden:
+            pass
+
+    msg = f"✅ Roles updated from `@{PARTICIPANT_ROLE_NAME}` to `@{FORMER_PARTICIPANT_ROLE_NAME}` for **{swapped_count} user(s)**."
+    if channel_renamed:
+        msg += f"\n🏷️ Ticket renamed to **{new_name}**."
+    else:
+        msg += "\n⚠️ Ticket already has the ✅ mark."
+
+    await interaction.followup.send(msg, ephemeral=True)
+
+
+# -------------------------------------------------------------------
+# 3. COMMAND: /sayall
+# Sends broadcast to uncategorized tickets or a specific category ID
+# -------------------------------------------------------------------
+@bot.tree.command(name="sayall", description="Sends a message to tickets or a specific category")
+@app_commands.describe(
+    message="The message to send",
+    category_id="OPTIONAL: Category ID (leave empty for uncategorized tickets)"
+)
+async def sayall(
+    interaction: discord.Interaction, 
+    message: str, 
+    category_id: str = None
+):
+    await interaction.response.defer(ephemeral=True)
+
+    guild = interaction.guild
+    sent_count = 0
+
+    target_category_id = None
+    if category_id:
+        try:
+            target_category_id = int(category_id.strip())
+        except ValueError:
+            await interaction.followup.send("❌ Invalid Category ID! It must contain numbers only.", ephemeral=True)
+            return
+
+    for channel in guild.text_channels:
+        is_target = False
+
+        if target_category_id is not None:
+            if channel.category and channel.category.id == target_category_id:
+                is_target = True
+        else:
+            if channel.category is None:
+                is_target = True
+
+        if is_target:
+            try:
+                await channel.send(message)
+                sent_count += 1
+            except discord.Forbidden:
+                pass
+
+    if target_category_id:
+        await interaction.followup.send(f"📢 Message successfully sent to **{sent_count} channel(s)** in the specified category!", ephemeral=True)
+    else:
+        await interaction.followup.send(f"📢 Message successfully sent to **{sent_count} uncategorized ticket(s)**!", ephemeral=True)
+
+
+# Start Bot
+if __name__ == "__main__":
+    if not BOT_TOKEN:
+        print("CRITICAL ERROR: No DISCORD_TOKEN found in environment variables!")
+    else:
+        bot.run(BOT_TOKEN)
         if member.bot:
             continue
 
