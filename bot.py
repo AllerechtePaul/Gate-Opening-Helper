@@ -78,7 +78,7 @@ async def participate(interaction: discord.Interaction):
     # 2. Add ❗️ prefix to channel name (if not already present)
     channel_renamed = False
     if not channel.name.startswith("❗️"):
-        new_name = f"❗️-{channel.name}"
+        new_name = f"❗️{channel.name}"
         try:
             await channel.edit(name=new_name)
             channel_renamed = True
@@ -138,7 +138,7 @@ async def paid(interaction: discord.Interaction):
         current_name = current_name[1:]
 
     if not current_name.startswith("✅"):
-        new_name = f"✅-{current_name}"
+        new_name = f"✅{current_name}"
         try:
             await channel.edit(name=new_name)
             channel_renamed = True
