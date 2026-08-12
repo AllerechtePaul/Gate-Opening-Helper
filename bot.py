@@ -22,8 +22,10 @@ PARTICIPANT_ROLE_NAME = "Participant"
 FORMER_PARTICIPANT_ROLE_NAME = "Former Participant"
 EMPLOYEE_ROLE_NAME = "Employee"
 
-# Category ID for /specialticket command:
+# Category IDs:
 SPECIAL_CATEGORY_ID = 1536184549170741269
+WORKER_CATEGORY_ID = 1537242203397820446
+PARTICIPATE_CATEGORY_ID = 1537245698443968583
 # =====================================================================
 
 class EventBot(commands.Bot):
@@ -55,9 +57,9 @@ def clean_channel_name(name: str) -> str:
 
 # -------------------------------------------------------------------
 # 1. COMMAND: /participate
-# Adds ❗️ directly to channel name & assigns @Participant role
+# Assigns @Participant role, adds ❗️ & moves channel to category
 # -------------------------------------------------------------------
-@bot.tree.command(name="participate", description="Assigns the Participant role and adds ❗️ to the ticket name")
+@bot.tree.command(name="participate", description="Assigns Participant role, adds ❗️ and moves ticket to participate category")
 async def participate(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
@@ -69,7 +71,7 @@ async def participate(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Role **'@{PARTICIPANT_ROLE_NAME}'** was not found on this server!", ephemeral=True)
         return
 
-    # Assign role to eligible members
+    # 1. Assign role to eligible members
     assigned_count = 0
     for member in channel.members:
         if member.bot:
@@ -86,7 +88,7 @@ async def participate(interaction: discord.Interaction):
             except discord.Forbidden:
                 print(f"Error: Could not assign role to {member.name}.")
 
-    # Add ❗️ directly to channel name
+    # 2. Add ❗️ directly to channel name
     channel_renamed = False
     clean_name = clean_channel_name(channel.name)
     new_name = f"❗️{clean_name}"
@@ -98,18 +100,35 @@ async def participate(interaction: discord.Interaction):
         except discord.Forbidden:
             pass
 
+    # 3. Move channel to target category
+    channel_moved = False
+    target_category = guild.get_channel(PARTICIPATE_CATEGORY_ID)
+    
+    if target_category and isinstance(target_category, discord.CategoryChannel):
+        if channel.category_id != PARTICIPATE_CATEGORY_ID:
+            try:
+                await channel.edit(category=target_category)
+                channel_moved = True
+            except discord.Forbidden:
+                print(f"Error: Could not move channel {channel.name} to category.")
+
+    # Response assembly
     msg = f"✅ Role **@{target_role.name}** assigned to **{assigned_count}** new participant(s)!"
     if channel_renamed:
         msg += f"\n🏷️ Ticket renamed to **{new_name}**."
+    if channel_moved:
+        msg += f"\n📁 Moved to category **{target_category.name}**."
+    elif not target_category:
+        msg += f"\n⚠️ Warning: Category ID `{PARTICIPATE_CATEGORY_ID}` was not found."
 
     await interaction.followup.send(msg, ephemeral=True)
 
 
 # -------------------------------------------------------------------
 # 2. COMMAND: /worker
-# Adds ⭐ directly to channel name & assigns @Employee role
+# Assigns @Employee role, adds ⭐ to name & moves channel to worker category
 # -------------------------------------------------------------------
-@bot.tree.command(name="worker", description="Assigns the Employee role and adds ⭐ to the ticket name")
+@bot.tree.command(name="worker", description="Assigns the Employee role, adds ⭐ and moves ticket to worker category")
 async def worker(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
@@ -121,7 +140,7 @@ async def worker(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Role **'@{EMPLOYEE_ROLE_NAME}'** was not found on this server!", ephemeral=True)
         return
 
-    # Assign role to eligible members
+    # 1. Assign role to eligible members
     assigned_count = 0
     for member in channel.members:
         if member.bot:
@@ -138,7 +157,7 @@ async def worker(interaction: discord.Interaction):
             except discord.Forbidden:
                 print(f"Error: Could not assign role to {member.name}.")
 
-    # Add ⭐ directly to channel name
+    # 2. Add ⭐ directly to channel name
     channel_renamed = False
     clean_name = clean_channel_name(channel.name)
     new_name = f"⭐{clean_name}"
@@ -150,9 +169,26 @@ async def worker(interaction: discord.Interaction):
         except discord.Forbidden:
             pass
 
+    # 3. Move channel to target category
+    channel_moved = False
+    worker_category = guild.get_channel(WORKER_CATEGORY_ID)
+    
+    if worker_category and isinstance(worker_category, discord.CategoryChannel):
+        if channel.category_id != WORKER_CATEGORY_ID:
+            try:
+                await channel.edit(category=worker_category)
+                channel_moved = True
+            except discord.Forbidden:
+                print(f"Error: Could not move channel {channel.name} to category.")
+
+    # Response assembly
     msg = f"✅ Role **@{target_role.name}** assigned to **{assigned_count}** new worker(s)!"
     if channel_renamed:
         msg += f"\n🏷️ Ticket renamed to **{new_name}**."
+    if channel_moved:
+        msg += f"\n📁 Moved to category **{worker_category.name}**."
+    elif not worker_category:
+        msg += f"\n⚠️ Warning: Category ID `{WORKER_CATEGORY_ID}` was not found."
 
     await interaction.followup.send(msg, ephemeral=True)
 
