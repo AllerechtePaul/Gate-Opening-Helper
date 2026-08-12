@@ -10,6 +10,7 @@ BOT_TOKEN = os.getenv("DISCORD_TOKEN")
 
 # Roles ignored by /participate and /worker:
 EXCLUDED_ROLES = [
+    "Staff",
     "Admin",
     "Trial Moderator",
     "Moderator",
@@ -291,6 +292,43 @@ async def specialticket(interaction: discord.Interaction):
         await interaction.followup.send("❌ The bot does not have permissions to move this channel.", ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"❌ Error while moving ticket: {e}", ephemeral=True)
+
+
+# -------------------------------------------------------------------
+# 6. COMMAND: /movechannel
+# Moves the current channel to any specified Category ID
+# -------------------------------------------------------------------
+@bot.tree.command(name="movechannel", description="Moves the current channel to a specific category ID")
+@app_commands.describe(category_id="The ID of the target category")
+async def movechannel(interaction: discord.Interaction, category_id: str):
+    await interaction.response.defer(ephemeral=True)
+
+    guild = interaction.guild
+    channel = interaction.channel
+
+    try:
+        parsed_category_id = int(category_id.strip())
+    except ValueError:
+        await interaction.followup.send("❌ Invalid Category ID! It must contain numbers only.", ephemeral=True)
+        return
+
+    target_category = guild.get_channel(parsed_category_id)
+
+    if not target_category or not isinstance(target_category, discord.CategoryChannel):
+        await interaction.followup.send(f"❌ Category with ID `{parsed_category_id}` was not found!", ephemeral=True)
+        return
+
+    if channel.category_id == parsed_category_id:
+        await interaction.followup.send("⚠️ This channel is already in the specified category!", ephemeral=True)
+        return
+
+    try:
+        await channel.edit(category=target_category)
+        await interaction.followup.send(f"📁 Channel successfully moved to **{target_category.name}**!", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("❌ The bot does not have permissions to move this channel.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error while moving channel: {e}", ephemeral=True)
 
 
 # Start Bot
