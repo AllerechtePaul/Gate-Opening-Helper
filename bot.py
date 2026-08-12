@@ -21,6 +21,9 @@ EXCLUDED_ROLES = [
 # Role names:
 PARTICIPANT_ROLE_NAME = "Participant"
 FORMER_PARTICIPANT_ROLE_NAME = "Former Participant"
+
+# Category ID for /special command:
+SPECIAL_CATEGORY_ID = 1536184549170741269
 # =====================================================================
 
 class EventBot(commands.Bot):
@@ -58,7 +61,7 @@ async def participate(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Role **'@{PARTICIPANT_ROLE_NAME}'** was not found on this server!", ephemeral=True)
         return
 
-    # 1. Assign role to eligible members
+    # Assign role to eligible members
     assigned_count = 0
     for member in channel.members:
         if member.bot:
@@ -75,10 +78,10 @@ async def participate(interaction: discord.Interaction):
             except discord.Forbidden:
                 print(f"Error: Could not assign role to {member.name}.")
 
-    # 2. Add ❗️ prefix to channel name (if not already present)
+    # Add ❗️ prefix to channel name (if not already present)
     channel_renamed = False
     if not channel.name.startswith("❗️"):
-        new_name = f"❗️{channel.name}"
+        new_name = f"❗️-{channel.name}"
         try:
             await channel.edit(name=new_name)
             channel_renamed = True
@@ -114,7 +117,7 @@ async def paid(interaction: discord.Interaction):
         )
         return
 
-    # 1. Swap roles for channel members
+    # Swap roles for channel members
     swapped_count = 0
     for member in channel.members:
         if member.bot:
@@ -128,17 +131,17 @@ async def paid(interaction: discord.Interaction):
             except discord.Forbidden:
                 print(f"Error: Could not update roles for {member.name}.")
 
-    # 2. Rename channel with ✅ prefix
+    # Rename channel with ✅ prefix
     channel_renamed = False
     
     current_name = channel.name
     if current_name.startswith("❗️-"):
-        current_name = current_name[2:]
+        current_name = current_name[3:]
     elif current_name.startswith("❗️"):
         current_name = current_name[1:]
 
     if not current_name.startswith("✅"):
-        new_name = f"✅{current_name}"
+        new_name = f"✅-{current_name}"
         try:
             await channel.edit(name=new_name)
             channel_renamed = True
@@ -202,6 +205,39 @@ async def sayall(
         await interaction.followup.send(f"📢 Message successfully sent to **{sent_count} channel(s)** in the specified category!", ephemeral=True)
     else:
         await interaction.followup.send(f"📢 Message successfully sent to **{sent_count} uncategorized ticket(s)**!", ephemeral=True)
+
+
+# -------------------------------------------------------------------
+# 4. COMMAND: /special
+# Moves the current ticket channel to the Special Category
+# -------------------------------------------------------------------
+@bot.tree.command(name="special", description="Moves the current ticket to the Special Category")
+async def special(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    guild = interaction.guild
+    channel = interaction.channel
+
+    # Fetch the target category
+    target_category = guild.get_channel(SPECIAL_CATEGORY_ID)
+
+    if not target_category or not isinstance(target_category, discord.CategoryChannel):
+        await interaction.followup.send(f"❌ Category with ID `{SPECIAL_CATEGORY_ID}` was not found!", ephemeral=True)
+        return
+
+    # Check if channel is already in this category
+    if channel.category_id == SPECIAL_CATEGORY_ID:
+        await interaction.followup.send("⚠️ This ticket is already in the Special Category!", ephemeral=True)
+        return
+
+    # Move channel
+    try:
+        await channel.edit(category=target_category)
+        await interaction.followup.send(f"📁 Ticket successfully moved to **{target_category.name}**!", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("❌ The bot does not have permissions to move this channel.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error while moving ticket: {e}", ephemeral=True)
 
 
 # Start Bot
