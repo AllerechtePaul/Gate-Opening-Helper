@@ -8,7 +8,7 @@ from discord.ext import commands
 # =====================================================================
 BOT_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# Roles ignored by /participate and /worker:
+# Global excluded roles (Staff/Admin team):
 EXCLUDED_ROLES = [
     "Staff",
     "Admin",
@@ -57,7 +57,6 @@ def clean_channel_name(name: str) -> str:
 
 # -------------------------------------------------------------------
 # 1. COMMAND: /participate
-# Assigns @Participant role, adds ❗️ & moves channel to category
 # -------------------------------------------------------------------
 @bot.tree.command(name="participate", description="Assigns Participant role, adds ❗️ and moves ticket to participate category")
 async def participate(interaction: discord.Interaction):
@@ -71,13 +70,14 @@ async def participate(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Role **'@{PARTICIPANT_ROLE_NAME}'** was not found on this server!", ephemeral=True)
         return
 
-    # 1. Assign role to eligible members
+    # 1. Assign role to eligible members (only if they don't already have Participant or an EXCLUDED_ROLE)
     assigned_count = 0
     for member in channel.members:
         if member.bot:
             continue
 
-        has_excluded_role = any(role.name in EXCLUDED_ROLES for role in member.roles)
+        # Check global staff excluded roles OR if member already has Participant
+        has_excluded_role = any(role.name in EXCLUDED_ROLES or role.name == PARTICIPANT_ROLE_NAME for role in member.roles)
         if member.guild_permissions.administrator:
             has_excluded_role = True
 
@@ -100,7 +100,7 @@ async def participate(interaction: discord.Interaction):
         except discord.Forbidden:
             pass
 
-    # 3. Move channel to target category
+    # 3. Move channel ONLY IF it is not already in the target category
     channel_moved = False
     target_category = guild.get_channel(PARTICIPATE_CATEGORY_ID)
     
@@ -118,6 +118,8 @@ async def participate(interaction: discord.Interaction):
         msg += f"\n🏷️ Ticket renamed to **{new_name}**."
     if channel_moved:
         msg += f"\n📁 Moved to category **{target_category.name}**."
+    elif target_category and channel.category_id == PARTICIPATE_CATEGORY_ID:
+        msg += f"\nℹ️ Ticket is already in category **{target_category.name}** (not moved)."
     elif not target_category:
         msg += f"\n⚠️ Warning: Category ID `{PARTICIPATE_CATEGORY_ID}` was not found."
 
@@ -126,7 +128,6 @@ async def participate(interaction: discord.Interaction):
 
 # -------------------------------------------------------------------
 # 2. COMMAND: /worker
-# Assigns @Employee role, adds ⭐ to name & moves channel to worker category
 # -------------------------------------------------------------------
 @bot.tree.command(name="worker", description="Assigns the Employee role, adds ⭐ and moves ticket to worker category")
 async def worker(interaction: discord.Interaction):
@@ -140,13 +141,14 @@ async def worker(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Role **'@{EMPLOYEE_ROLE_NAME}'** was not found on this server!", ephemeral=True)
         return
 
-    # 1. Assign role to eligible members
+    # 1. Assign role to eligible members (only if they don't already have Employee or an EXCLUDED_ROLE)
     assigned_count = 0
     for member in channel.members:
         if member.bot:
             continue
 
-        has_excluded_role = any(role.name in EXCLUDED_ROLES for role in member.roles)
+        # Check global staff excluded roles OR if member already has Employee
+        has_excluded_role = any(role.name in EXCLUDED_ROLES or role.name == EMPLOYEE_ROLE_NAME for role in member.roles)
         if member.guild_permissions.administrator:
             has_excluded_role = True
 
@@ -169,7 +171,7 @@ async def worker(interaction: discord.Interaction):
         except discord.Forbidden:
             pass
 
-    # 3. Move channel to target category
+    # 3. Move channel ONLY IF it is not already in the target category
     channel_moved = False
     worker_category = guild.get_channel(WORKER_CATEGORY_ID)
     
@@ -187,6 +189,8 @@ async def worker(interaction: discord.Interaction):
         msg += f"\n🏷️ Ticket renamed to **{new_name}**."
     if channel_moved:
         msg += f"\n📁 Moved to category **{worker_category.name}**."
+    elif worker_category and channel.category_id == WORKER_CATEGORY_ID:
+        msg += f"\nℹ️ Ticket is already in category **{worker_category.name}** (not moved)."
     elif not worker_category:
         msg += f"\n⚠️ Warning: Category ID `{WORKER_CATEGORY_ID}` was not found."
 
@@ -195,7 +199,6 @@ async def worker(interaction: discord.Interaction):
 
 # -------------------------------------------------------------------
 # 3. COMMAND: /paid
-# Changes @Participant to @Former Participant & adds ✅ directly to ticket name
 # -------------------------------------------------------------------
 @bot.tree.command(name="paid", description="Marks ticket as paid and converts Participant to Former Participant")
 async def paid(interaction: discord.Interaction):
@@ -252,7 +255,6 @@ async def paid(interaction: discord.Interaction):
 
 # -------------------------------------------------------------------
 # 4. COMMAND: /sayall
-# Sends broadcast to uncategorized tickets or a specific category ID
 # -------------------------------------------------------------------
 @bot.tree.command(name="sayall", description="Sends a message to tickets or a specific category")
 @app_commands.describe(
@@ -302,7 +304,6 @@ async def sayall(
 
 # -------------------------------------------------------------------
 # 5. COMMAND: /specialticket
-# Moves the current ticket channel to the Special Category
 # -------------------------------------------------------------------
 @bot.tree.command(name="specialticket", description="Moves the current ticket to the Special Category")
 async def specialticket(interaction: discord.Interaction):
@@ -332,7 +333,6 @@ async def specialticket(interaction: discord.Interaction):
 
 # -------------------------------------------------------------------
 # 6. COMMAND: /movechannel
-# Moves the current channel to any specified Category ID
 # -------------------------------------------------------------------
 @bot.tree.command(name="movechannel", description="Moves the current channel to a specific category ID")
 @app_commands.describe(category_id="The ID of the target category")
