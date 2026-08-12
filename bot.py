@@ -8,10 +8,8 @@ from discord.ext import commands
 # =====================================================================
 BOT_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# Roles ignored by /participate:
+# Roles ignored by /participate and /worker:
 EXCLUDED_ROLES = [
-    "Participant",
-    "Former Participant",
     "Admin",
     "Trial Moderator",
     "Moderator",
@@ -21,8 +19,9 @@ EXCLUDED_ROLES = [
 # Role names:
 PARTICIPANT_ROLE_NAME = "Participant"
 FORMER_PARTICIPANT_ROLE_NAME = "Former Participant"
+EMPLOYEE_ROLE_NAME = "Employee"
 
-# Category ID for /special command:
+# Category ID for /specialticket command:
 SPECIAL_CATEGORY_ID = 1536184549170741269
 # =====================================================================
 
@@ -45,9 +44,17 @@ async def on_ready():
     print("-----------------------------------------------------")
 
 
+# Helper function to clean prefixes from channel name
+def clean_channel_name(name: str) -> str:
+    for prefix in ["❗️-", "❗️", "⭐-", "⭐", "✅-", "✅"]:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+    return name
+
+
 # -------------------------------------------------------------------
 # 1. COMMAND: /participate
-# Adds ❗️ to channel name & assigns @Participant role
+# Adds ❗️ directly to channel name & assigns @Participant role
 # -------------------------------------------------------------------
 @bot.tree.command(name="participate", description="Assigns the Participant role and adds ❗️ to the ticket name")
 async def participate(interaction: discord.Interaction):
@@ -78,10 +85,12 @@ async def participate(interaction: discord.Interaction):
             except discord.Forbidden:
                 print(f"Error: Could not assign role to {member.name}.")
 
-    # Add ❗️ prefix to channel name (if not already present)
+    # Add ❗️ directly to channel name
     channel_renamed = False
-    if not channel.name.startswith("❗️"):
-        new_name = f"❗️-{channel.name}"
+    clean_name = clean_channel_name(channel.name)
+    new_name = f"❗️{clean_name}"
+
+    if channel.name != new_name:
         try:
             await channel.edit(name=new_name)
             channel_renamed = True
@@ -96,8 +105,60 @@ async def participate(interaction: discord.Interaction):
 
 
 # -------------------------------------------------------------------
-# 2. COMMAND: /paid
-# Changes @Participant to @Former Participant & adds ✅ to ticket name
+# 2. COMMAND: /worker
+# Adds ⭐ directly to channel name & assigns @Employee role
+# -------------------------------------------------------------------
+@bot.tree.command(name="worker", description="Assigns the Employee role and adds ⭐ to the ticket name")
+async def worker(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    guild = interaction.guild
+    channel = interaction.channel
+
+    target_role = discord.utils.get(guild.roles, name=EMPLOYEE_ROLE_NAME)
+    if not target_role:
+        await interaction.followup.send(f"❌ Role **'@{EMPLOYEE_ROLE_NAME}'** was not found on this server!", ephemeral=True)
+        return
+
+    # Assign role to eligible members
+    assigned_count = 0
+    for member in channel.members:
+        if member.bot:
+            continue
+
+        has_excluded_role = any(role.name in EXCLUDED_ROLES for role in member.roles)
+        if member.guild_permissions.administrator:
+            has_excluded_role = True
+
+        if not has_excluded_role:
+            try:
+                await member.add_roles(target_role)
+                assigned_count += 1
+            except discord.Forbidden:
+                print(f"Error: Could not assign role to {member.name}.")
+
+    # Add ⭐ directly to channel name
+    channel_renamed = False
+    clean_name = clean_channel_name(channel.name)
+    new_name = f"⭐{clean_name}"
+
+    if channel.name != new_name:
+        try:
+            await channel.edit(name=new_name)
+            channel_renamed = True
+        except discord.Forbidden:
+            pass
+
+    msg = f"✅ Role **@{target_role.name}** assigned to **{assigned_count}** new worker(s)!"
+    if channel_renamed:
+        msg += f"\n🏷️ Ticket renamed to **{new_name}**."
+
+    await interaction.followup.send(msg, ephemeral=True)
+
+
+# -------------------------------------------------------------------
+# 3. COMMAND: /paid
+# Changes @Participant to @Former Participant & adds ✅ directly to ticket name
 # -------------------------------------------------------------------
 @bot.tree.command(name="paid", description="Marks ticket as paid and converts Participant to Former Participant")
 async def paid(interaction: discord.Interaction):
@@ -131,17 +192,12 @@ async def paid(interaction: discord.Interaction):
             except discord.Forbidden:
                 print(f"Error: Could not update roles for {member.name}.")
 
-    # Rename channel with ✅ prefix
+    # Rename channel with ✅ directly attached
     channel_renamed = False
-    
-    current_name = channel.name
-    if current_name.startswith("❗️-"):
-        current_name = current_name[3:]
-    elif current_name.startswith("❗️"):
-        current_name = current_name[1:]
+    clean_name = clean_channel_name(channel.name)
+    new_name = f"✅{clean_name}"
 
-    if not current_name.startswith("✅"):
-        new_name = f"✅-{current_name}"
+    if channel.name != new_name:
         try:
             await channel.edit(name=new_name)
             channel_renamed = True
@@ -158,7 +214,7 @@ async def paid(interaction: discord.Interaction):
 
 
 # -------------------------------------------------------------------
-# 3. COMMAND: /sayall
+# 4. COMMAND: /sayall
 # Sends broadcast to uncategorized tickets or a specific category ID
 # -------------------------------------------------------------------
 @bot.tree.command(name="sayall", description="Sends a message to tickets or a specific category")
@@ -208,29 +264,26 @@ async def sayall(
 
 
 # -------------------------------------------------------------------
-# 4. COMMAND: /special
+# 5. COMMAND: /specialticket
 # Moves the current ticket channel to the Special Category
 # -------------------------------------------------------------------
-@bot.tree.command(name="special", description="Moves the current ticket to the Special Category")
-async def special(interaction: discord.Interaction):
+@bot.tree.command(name="specialticket", description="Moves the current ticket to the Special Category")
+async def specialticket(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     guild = interaction.guild
     channel = interaction.channel
 
-    # Fetch the target category
     target_category = guild.get_channel(SPECIAL_CATEGORY_ID)
 
     if not target_category or not isinstance(target_category, discord.CategoryChannel):
         await interaction.followup.send(f"❌ Category with ID `{SPECIAL_CATEGORY_ID}` was not found!", ephemeral=True)
         return
 
-    # Check if channel is already in this category
     if channel.category_id == SPECIAL_CATEGORY_ID:
         await interaction.followup.send("⚠️ This ticket is already in the Special Category!", ephemeral=True)
         return
 
-    # Move channel
     try:
         await channel.edit(category=target_category)
         await interaction.followup.send(f"📁 Ticket successfully moved to **{target_category.name}**!", ephemeral=True)
