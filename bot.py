@@ -6,7 +6,7 @@ from discord.ext import commands
 # EINSTELLUNGEN
 # =====================================================================
 BOT_TOKEN = os.getenv("DISCORD_TOKEN")
-TARGET_USER_ID = 1449876807665848371
+TARGET_USER_ID = 1247227733436661831  # Aktualisierte User-ID
 # =====================================================================
 
 
