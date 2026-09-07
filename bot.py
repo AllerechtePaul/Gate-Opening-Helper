@@ -1,11 +1,13 @@
 import os
 import discord
+from dotenv import load_dotenv
 from discord import app_commands
 from discord.ext import commands
 
 # =====================================================================
 # SETTINGS
 # =====================================================================
+load_dotenv()
 BOT_TOKEN = os.getenv("DISCORD_TOKEN")
 
 EXCLUDED_ROLES = ["Staff", "Admin", "Trial Moderator", "Moderator", "Ticket King"]
