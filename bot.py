@@ -21,19 +21,14 @@ PARTICIPANT_ROLE_NAME = "Participant"
 FORMER_PARTICIPANT_ROLE_NAME = "Former Participant"
 EMPLOYEE_ROLE_NAME = "Employee"
 
-# Eigene Kategorie-Listen für Befehle
 PARTICIPATE_CATEGORY_IDS = [1537245698443968583, 1538637387138072627]
 WORKER_CATEGORY_IDS = [1537242203397820446]
 SPECIAL_CATEGORY_ID = 1536184549170741269
 
-# Exklusive Kategorie ID für die KI-Antworten & Auto-Welcome
 AI_ALLOWED_CATEGORY_ID = 1537228656055820401
 
-# Dictionary zur Speicherung des Timestamps (in Sekunden UNIX POSIX), ab wann der Bot pro Channel wieder aktiv ist
-BOT_RESUME_TIMESTAMPS = {}
-
 # =====================================================================
-# KI / GEMINI TRAINING & SYSTEM PROMPT (ENGLISH)
+# KI / GEMINI TRAINING & SYSTEM PROMPT
 # =====================================================================
 AI_SYSTEM_PROMPT = """
 You are the official automated Event Support Bot on this Discord server. Your task is to assist players in support tickets directly, concisely, and naturally in English.
@@ -77,12 +72,9 @@ OFFICIAL EVENT INFORMATION & KNOWLEDGE BASE:
 - Invite Reward Rate: 3k per invited user initially (higher for dedicated inviters).
 """
 
-# Gemini Client initialisieren
 gemini_client = None
 if GEMINI_API_KEY:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-else:
-    print("WARNING: No GEMINI_API_KEY found. AI responses are disabled!")
 
 # =====================================================================
 
@@ -103,10 +95,7 @@ bot = EventBot()
 @bot.event
 async def on_ready():
     print(f"Bot is online! Logged in as: {bot.user.name}")
-    print("-----------------------------------------------------")
 
-
-# Helper function to completely remove existing prefixes
 def clean_channel_name(name: str) -> str:
     prefixes = ["❗️-", "❗️", "⭐-", "⭐", "✅-", "✅"]
     changed = True
@@ -118,8 +107,6 @@ def clean_channel_name(name: str) -> str:
                 changed = True
     return name
 
-
-# Helper function to find first non-full category from a specific list
 def get_available_category(guild, category_ids):
     for cat_id in category_ids:
         category = guild.get_channel(cat_id)
@@ -128,8 +115,6 @@ def get_available_category(guild, category_ids):
                 return category
     return None
 
-
-# Helper function for executing participation logic (Role, Rename, Move)
 async def execute_participate_logic(guild, channel):
     target_role = discord.utils.get(guild.roles, name=PARTICIPANT_ROLE_NAME)
     if not target_role:
@@ -168,27 +153,20 @@ async def execute_participate_logic(guild, channel):
 
     return True, f"Assigned @{PARTICIPANT_ROLE_NAME} to {assigned_count} user(s)."
 
-
-# Task to keep typing active until response is generated
 async def keep_typing(channel):
     while True:
         await channel.typing()
         await asyncio.sleep(8)
 
-
-# -------------------------------------------------------------------
-# 1. AUTOMATISCHE BEGRÜSSUNG BEI NEUEM TICKET
-# -------------------------------------------------------------------
+# 1. AUTO WELCOME
 @bot.event
 async def on_guild_channel_create(channel: discord.abc.GuildChannel):
     if not isinstance(channel, discord.TextChannel):
         return
 
-    # Nur in der Ticket-Kategorie ausführen
     if not channel.category or channel.category.id != AI_ALLOWED_CATEGORY_ID:
         return
 
-    # 4 Sekunden warten, damit Ticket King seine Nachricht sicher gesendet hat
     await asyncio.sleep(4)
 
     welcome_text = (
@@ -206,32 +184,20 @@ async def on_guild_channel_create(channel: discord.abc.GuildChannel):
     except Exception as e:
         print(f"Error sending auto-welcome: {e}")
 
-
-# -------------------------------------------------------------------
-# 2. AUTOMATISCHE KI-ANTWORT AUF TICKETS (on_message)
-# -------------------------------------------------------------------
+# 2. ON MESSAGE (NORMALER STAFF CHECK)
 @bot.event
 async def on_message(message: discord.Message):
-    # 1. Bots generell ignorieren
     if message.author.bot:
         return
 
-    # 2. Kategorie-Filter
     if not message.channel.category or message.channel.category.id != AI_ALLOWED_CATEGORY_ID:
         await bot.process_commands(message)
         return
 
-    # Resume-Timestamp für diesen Kanal abrufen (UNIX Float Format)
-    resume_after = BOT_RESUME_TIMESTAMPS.get(message.channel.id, 0)
-
-    # 3. DYNAMISCHER STAFF-CHECK (mit Beachtung von /botresume)
+    # EINFACER STAFF CHECK
     try:
         async for msg in message.channel.history(limit=20):
             if msg.author.bot:
-                continue
-
-            # Nachrichten vor oder während der Ausführung von /botresume überspringen
-            if msg.created_at.timestamp() <= resume_after:
                 continue
 
             if isinstance(msg.author, discord.Member):
@@ -242,7 +208,7 @@ async def on_message(message: discord.Message):
     except Exception as e:
         print(f"Fehler beim Prüfen der Kanal-Historie: {e}")
 
-    # 4. ASYNCHRONE KI-ANTWORT GENERIEREN (MIT RETRY BEI 503 HIGH DEMAND)
+    # KI ANTWORT
     if gemini_client:
         typing_task = asyncio.create_task(keep_typing(message.channel))
         
@@ -259,7 +225,7 @@ async def on_message(message: discord.Message):
                         "temperature": 0.5,
                     }
                 )
-                break  # Erfolgreich -> Schleife beenden!
+                break
             except Exception as e:
                 if "503" in str(e) or "UNAVAILABLE" in str(e):
                     if attempt < max_retries - 1:
@@ -292,19 +258,30 @@ async def on_message(message: discord.Message):
 
     await bot.process_commands(message)
 
-
-# -------------------------------------------------------------------
+# =====================================================================
 # SLASH COMMANDS
-# -------------------------------------------------------------------
+# =====================================================================
 
-@bot.tree.command(name="botresume", description="Re-activates AI responses in this ticket channel")
+@bot.tree.command(name="botresume", description="Re-activates AI responses by cleaning staff messages in this channel")
 async def botresume(interaction: discord.Interaction):
-    # Erfasse exakten Unix-Timestamp des Befehls
-    now_timestamp = interaction.created_at.timestamp()
-    BOT_RESUME_TIMESTAMPS[interaction.channel_id] = now_timestamp
+    await interaction.response.defer(ephemeral=True)
     
-    # Sendet eine 'ephemeral' Nachricht (nur für den Ausführenden sichtbar)
-    await interaction.response.send_message("🤖 **AI Support has been re-enabled for this channel!**", ephemeral=True)
+    deleted_count = 0
+    # Gehe die letzten 30 Nachrichten durch und lösche alle Nachrichten von Staff-Mitgliedern
+    async for msg in interaction.channel.history(limit=30):
+        if msg.author.bot:
+            continue
+        
+        if isinstance(msg.author, discord.Member):
+            has_staff = any(role.id == STAFF_ROLE_ID or role.name in EXCLUDED_ROLES for role in msg.author.roles)
+            if has_staff or msg.author.guild_permissions.administrator:
+                try:
+                    await msg.delete()
+                    deleted_count += 1
+                except Exception:
+                    pass
+                    
+    await interaction.followup.send(f"🤖 **AI Support re-enabled!** (Removed {deleted_count} staff message(s) from history)", ephemeral=True)
 
 
 @bot.tree.command(name="participate", description="Assigns Participant role, adds ❗️ and moves ticket to participate category")
@@ -478,9 +455,8 @@ async def movechannel(interaction: discord.Interaction, category_id: str):
         await interaction.followup.send("❌ No permissions to move channel.", ephemeral=True)
 
 
-# Start Bot
 if __name__ == "__main__":
     if not BOT_TOKEN:
-        print("CRITICAL ERROR: No DISCORD_TOKEN found in environment variables!")
+        print("CRITICAL ERROR: No DISCORD_TOKEN found!")
     else:
         bot.run(BOT_TOKEN)
