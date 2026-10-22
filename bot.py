@@ -24,7 +24,7 @@ PARTICIPATE_CATEGORY_IDS = [1537245698443968583, 1538637387138072627]
 WORKER_CATEGORY_IDS = [1537242203397820446]
 SPECIAL_CATEGORY_ID = 1536184549170741269
 
-# NEU: Exklusive Kategorie ID für die KI-Antworten!
+# Exklusive Kategorie ID für die KI-Antworten
 AI_ALLOWED_CATEGORY_ID = 1537228656055820401
 
 # =====================================================================
@@ -151,6 +151,8 @@ async def on_message(message: discord.Message):
                     )
             except Exception as e:
                 print(f"Fehler bei Gemini API Aufruf: {e}")
+                # Sendet den exakten Fehler direkt ins Ticket zum Debuggen
+                await message.reply(f"⚠️ **KI-Fehler:** `{e}`")
 
     await bot.process_commands(message)
 
