@@ -19,13 +19,13 @@ PARTICIPANT_ROLE_NAME = "Participant"
 FORMER_PARTICIPANT_ROLE_NAME = "Former Participant"
 EMPLOYEE_ROLE_NAME = "Employee"
 
-# Eigene Kategorie-Listen für jeden Befehl!
+# Eigene Kategorie-Listen für Befehle
 PARTICIPATE_CATEGORY_IDS = [1537245698443968583, 1538637387138072627]
 WORKER_CATEGORY_IDS = [1537242203397820446]
 SPECIAL_CATEGORY_ID = 1536184549170741269
 
-# Alle Ticket-Kategorien zusammengefasst für die KI
-ALL_TICKET_CATEGORY_IDS = PARTICIPATE_CATEGORY_IDS + WORKER_CATEGORY_IDS + [SPECIAL_CATEGORY_ID]
+# NEU: Exklusive Kategorie ID für die KI-Antworten!
+AI_ALLOWED_CATEGORY_ID = 1537228656055820401
 
 # =====================================================================
 # KI / GEMINI TRAINING & SYSTEM PROMPT (ENGLISH)
@@ -127,15 +127,8 @@ async def on_message(message: discord.Message):
             await bot.process_commands(message)
             return
 
-    # 3. Prüfen, ob die Nachricht in einer der Ticket-Kategorien oder in einem unkategorisierten Ticket steht
-    in_ticket_category = False
-    if message.channel.category:
-        if message.channel.category.id in ALL_TICKET_CATEGORY_IDS:
-            in_ticket_category = True
-    else:
-        in_ticket_category = True
-
-    if not in_ticket_category:
+    # 3. KATEGORIE-FILTER: KI antwortet AUSSCHLIESSLICH in der festgelegten Kategorie ID
+    if not message.channel.category or message.channel.category.id != AI_ALLOWED_CATEGORY_ID:
         await bot.process_commands(message)
         return
 
