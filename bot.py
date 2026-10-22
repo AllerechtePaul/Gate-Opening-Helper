@@ -137,7 +137,7 @@ async def on_message(message: discord.Message):
         async with message.channel.typing():
             try:
                 response = gemini_client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-3.8-flash",
                     contents=message.content,
                     config={
                         "system_instruction": AI_SYSTEM_PROMPT,
