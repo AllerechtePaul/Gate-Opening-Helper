@@ -33,26 +33,23 @@ AI_ALLOWED_CATEGORY_ID = 1537228656055820401
 # KI / GEMINI TRAINING & SYSTEM PROMPT (ENGLISH)
 # =====================================================================
 AI_SYSTEM_PROMPT = """
-You are the official automated Event Support Bot on this Discord server. Your task is to assist players in support tickets warmly, politely, and naturally in English.
+You are the official automated Event Support Bot on this Discord server. Your task is to assist players in support tickets directly, concisely, and naturally in English.
 
-IMPORTANT CONVERSATION & FLOW RULES:
-1. ALWAYS DIRECT TO THE INFO ABOVE:
-   - When a user asks a question or opens the conversation, ALWAYS politely remind them to read the information message sent by Ticket King above!
-   - Example phrasing: "Hello! We are glad that you would like to participate in our event. Please make sure to read the info message above—it covers most of the details you'll need! Let me know if you understand everything or if you have any questions."
-   - Answer their specific question, but ALWAYS combine it with the direction to read the info above.
+STRICT FORMATTING & CONVERSATION RULES:
+1. BE CONCISE & DIRECT:
+   - Keep answers SHORT (1-2 sentences max).
+   - Do NOT add unnecessary empty lines or multi-paragraph fluff.
+   - Do NOT repeat the full welcome intro if you or the bot already greeted them earlier!
 
 2. USER AGREES TO PARTICIPATE OR HAS NO MORE QUESTIONS:
-   - Trigger the participation process if the user:
-     a) Confirms/agrees (e.g., "yes", "I understand", "ok", "I agree", "I want to join") OR
-     b) States they have no further questions (e.g., "no questions", "I'm good", "no", "nothing else", "that's all").
+   - Trigger the participation process if the user agrees (e.g., "understood all", "yes", "ok", "I agree", "no questions", "I'm good").
    - Action to take:
-     - Respond warmly, confirming they are signed up/ready for the event!
-     - Include this exact trigger word at the VERY END of your response: [TRIGGER_PARTICIPATE]
-     - Explicitly remind them: "Make sure to turn on notifications for the <#1533506634985504909> channel to not miss the next event! The next event will be announced in there soon."
+     - Respond ONLY with a single short line like: "Awesome! You're all set and signed up for the event! 🎉"
+     - Include this exact trigger word at the VERY END: [TRIGGER_PARTICIPATE]
 
 3. UNANSWERABLE QUESTIONS / STAFF ESCALATION:
-   - If a user asks something not covered in the rules, asks for a human/staff, or pings staff:
-     - Politely inform them that a staff member will assist them shortly and tag <@&1536186291417518081>.
+   - If a user asks something not covered in the rules, asks for staff, or pings staff:
+     - Politely inform them that staff will assist them shortly and tag <@&1536186291417518081>.
 
 OFFICIAL EVENT INFORMATION & KNOWLEDGE BASE:
 📜 Event Details:
@@ -189,7 +186,6 @@ async def on_guild_channel_create(channel: discord.abc.GuildChannel):
         "Let me know if you understand all and don't hesitate to ask any further questions."
     )
 
-    # Versuchen, auf die Ticket-King-Nachricht zu antworten
     try:
         async for msg in channel.history(limit=5, oldest_first=True):
             if msg.author.bot:
@@ -209,48 +205,42 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    # 2. Kategorie-Filter: KI antwortet nur in der festgelegten Kategorie ID
+    # 2. Kategorie-Filter
     if not message.channel.category or message.channel.category.id != AI_ALLOWED_CATEGORY_ID:
         await bot.process_commands(message)
         return
 
-# 3. DYNAMISCHER STAFF-CHECK: Prüfen, ob bereits ein Staff-Mitglied im Ticket geschrieben hat
+    # 3. DYNAMISCHER STAFF-CHECK: Prüfen, ob menschliches Staff-Mitglied geschrieben hat
     try:
         async for msg in message.channel.history(limit=20):
-            # Bot-Nachrichten (Ticket King, eigener Bot, etc.) bei der Prüfung komplett ignorieren
             if msg.author.bot:
                 continue
 
             if isinstance(msg.author, discord.Member):
-                # Prüfen, ob der Verfasser die Staff-Rolle/Excluded-Rolle hat oder Admin ist
                 has_staff_role = any(role.id == STAFF_ROLE_ID or role.name in EXCLUDED_ROLES for role in msg.author.roles)
                 if has_staff_role or msg.author.guild_permissions.administrator:
-                    # Ein echter Staff-User hat geschrieben -> KI stummschalten!
                     await bot.process_commands(message)
                     return
     except Exception as e:
         print(f"Fehler beim Prüfen der Kanal-Historie: {e}")
 
-    # 4. KI-Antwort generieren (wenn kein Staff geantwortet hat)
+    # 4. ASYNCHRONE KI-ANTWORT GENERIEREN
     if gemini_client:
         typing_task = asyncio.create_task(keep_typing(message.channel))
         try:
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: gemini_client.models.generate_content(
-                    model="gemini-3.8-flash",
-                    contents=message.content,
-                    config={
-                        "system_instruction": AI_SYSTEM_PROMPT,
-                        "temperature": 0.6,
-                    }
-                )
+            # Asynchroner API-Aufruf (.aio) für maximale Geschwindigkeit
+            response = await gemini_client.aio.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=message.content,
+                config={
+                    "system_instruction": AI_SYSTEM_PROMPT,
+                    "temperature": 0.5,
+                }
             )
             typing_task.cancel()
 
             if response.text:
-                reply_text = response.text
+                reply_text = response.text.strip()
 
                 trigger_found = False
                 if "[TRIGGER_PARTICIPATE]" in reply_text:
@@ -274,7 +264,7 @@ async def on_message(message: discord.Message):
 
 
 # -------------------------------------------------------------------
-# SLASH COMMANDS (/participate, /worker, /paid, /sayall, etc.)
+# SLASH COMMANDS
 # -------------------------------------------------------------------
 @bot.tree.command(name="participate", description="Assigns Participant role, adds ❗️ and moves ticket to participate category")
 async def participate(interaction: discord.Interaction):
