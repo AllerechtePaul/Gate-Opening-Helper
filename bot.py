@@ -1,7 +1,6 @@
 import os
 import asyncio
 import discord
-from datetime import datetime, timezone
 from dotenv import load_dotenv
 from discord import app_commands
 from discord.ext import commands
@@ -30,7 +29,7 @@ SPECIAL_CATEGORY_ID = 1536184549170741269
 # Exklusive Kategorie ID für die KI-Antworten & Auto-Welcome
 AI_ALLOWED_CATEGORY_ID = 1537228656055820401
 
-# Dictionary zur Speicherung des Timestamps, ab wann der Bot pro Channel wieder aktiv ist
+# Dictionary zur Speicherung des Timestamps (in Sekunden UNIX POSIX), ab wann der Bot pro Channel wieder aktiv ist
 BOT_RESUME_TIMESTAMPS = {}
 
 # =====================================================================
@@ -222,8 +221,8 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
-    # Timestamp für diesen Kanal abrufen (falls /botresume verwendet wurde)
-    resume_after = BOT_RESUME_TIMESTAMPS.get(message.channel.id)
+    # Resume-Timestamp für diesen Kanal abrufen (UNIX Float Format)
+    resume_after = BOT_RESUME_TIMESTAMPS.get(message.channel.id, 0)
 
     # 3. DYNAMISCHER STAFF-CHECK (mit Beachtung von /botresume)
     try:
@@ -231,8 +230,8 @@ async def on_message(message: discord.Message):
             if msg.author.bot:
                 continue
 
-            # Falls ein Resume-Timestamp existiert, ignoriere ältere Staff-Nachrichten
-            if resume_after and msg.created_at <= resume_after:
+            # Nachrichten vor oder während der Ausführung von /botresume überspringen
+            if msg.created_at.timestamp() <= resume_after:
                 continue
 
             if isinstance(msg.author, discord.Member):
@@ -300,9 +299,12 @@ async def on_message(message: discord.Message):
 
 @bot.tree.command(name="botresume", description="Re-activates AI responses in this ticket channel")
 async def botresume(interaction: discord.Interaction):
-    # Timestamp auf die aktuelle UTC-Zeit setzen
-    BOT_RESUME_TIMESTAMPS[interaction.channel_id] = datetime.now(timezone.utc)
-    await interaction.response.send_message("🤖 **AI Support has been re-enabled for this channel!**", ephemeral=False)
+    # Erfasse exakten Unix-Timestamp des Befehls
+    now_timestamp = interaction.created_at.timestamp()
+    BOT_RESUME_TIMESTAMPS[interaction.channel_id] = now_timestamp
+    
+    # Sendet eine 'ephemeral' Nachricht (nur für den Ausführenden sichtbar)
+    await interaction.response.send_message("🤖 **AI Support has been re-enabled for this channel!**", ephemeral=True)
 
 
 @bot.tree.command(name="participate", description="Assigns Participant role, adds ❗️ and moves ticket to participate category")
