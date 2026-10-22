@@ -32,7 +32,7 @@ AI_ALLOWED_CATEGORY_ID = 1537228656055820401
 STAFF_PAUSE_CATEGORY_ID = 1562656450562621571
 
 # =====================================================================
-# KI / GEMINI TRAINING & SYSTEM PROMPT
+# KI / GEMINI TRAINING & SYSTEM PROMPT (ENGLISH)
 # =====================================================================
 AI_SYSTEM_PROMPT = """
 You are the official automated Event Support Bot on this Discord server. Your task is to assist players in support tickets directly, concisely, and naturally in English.
@@ -64,16 +64,15 @@ STRICT FORMATTING & CONVERSATION RULES:
 OFFICIAL EVENT INFORMATION & KNOWLEDGE BASE:
 📜 Event Details:
 - Start Date & Time: Announced in <#1533506634985504909>. Advise them to check there and turn on notifications!
-- 💸 Entry Fee & Discounts: Standard fee is 35k. Discounts available for inviting others.
+- 💸 Entry Fee & Discounts: The standard entry fee is 35k, but you can reduce the price by 3k per invite.
+- 💰 Earning Cash: After participating in the event, players can earn extra cash by inviting other interested players.
 - 📍 Payment Location: Paid after joining the VIP server at Howling Peak.
 - 🚪 Gate Opening: Once everyone pays, the owner guides the group to the gate and unlocks it.
 - ⚔️ Parkour & Reward: Infinite attempts on the parkour after passing the gate until claiming the sword!
-- 💰 Post-Event Cash: Stay after getting rewards and invite others to earn cash.
 - ✅ Legitimacy Check: Refer to <#1534230669729861652> for player feedback.
 
-👥 Invite Rules & Rewards:
-- Qualified Invites: Only invite people genuinely interested in participating.
-- Invite Reward Rate: 3k per invited user initially (higher for dedicated inviters).
+👥 Invite Rules:
+- Qualified Invites: Only invite people who are genuinely interested in participating.
 """
 
 gemini_client = None
