@@ -224,41 +224,55 @@ async def on_message(message: discord.Message):
     except Exception as e:
         print(f"Fehler beim Prüfen der Kanal-Historie: {e}")
 
-    # 4. ASYNCHRONE KI-ANTWORT GENERIEREN
+    # 4. ASYNCHRONE KI-ANTWORT GENERIEREN (MIT RETRY BEI 503 HIGH DEMAND)
     if gemini_client:
         typing_task = asyncio.create_task(keep_typing(message.channel))
-        try:
-            # Asynchroner API-Aufruf (.aio) für maximale Geschwindigkeit
-            response = await gemini_client.aio.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=message.content,
-                config={
-                    "system_instruction": AI_SYSTEM_PROMPT,
-                    "temperature": 0.5,
-                }
-            )
-            typing_task.cancel()
-
-            if response.text:
-                reply_text = response.text.strip()
-
-                trigger_found = False
-                if "[TRIGGER_PARTICIPATE]" in reply_text:
-                    trigger_found = True
-                    reply_text = reply_text.replace("[TRIGGER_PARTICIPATE]", "").strip()
-
-                await message.reply(
-                    reply_text,
-                    allowed_mentions=discord.AllowedMentions(roles=True, users=True)
+        
+        max_retries = 3
+        response = None
+        
+        for attempt in range(max_retries):
+            try:
+                response = await gemini_client.aio.models.generate_content(
+                    model="gemini-3.8-flash",
+                    contents=message.content,
+                    config={
+                        "system_instruction": AI_SYSTEM_PROMPT,
+                        "temperature": 0.5,
+                    }
                 )
+                break  # Erfolgreich -> Schleife beenden!
+            except Exception as e:
+                # Bei 503 (High Demand) oder Serverfehler kurz warten und erneut versuchen
+                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2)  # 2 Sekunden warten vor nächstem Versuch
+                        continue
+                
+                # Falls es kein 503 Fehler ist oder alle 3 Versuche fehlschlagen
+                typing_task.cancel()
+                print(f"Fehler bei Gemini API Aufruf: {e}")
+                await message.reply("⚠️ *The AI service is currently busy. Please send your message once more!*")
+                await bot.process_commands(message)
+                return
 
-                if trigger_found:
-                    await execute_participate_logic(message.guild, message.channel)
+        typing_task.cancel()
 
-        except Exception as e:
-            typing_task.cancel()
-            print(f"Fehler bei Gemini API Aufruf: {e}")
-            await message.reply(f"⚠️ **KI-Fehler:** `{e}`")
+        if response and response.text:
+            reply_text = response.text.strip()
+
+            trigger_found = False
+            if "[TRIGGER_PARTICIPATE]" in reply_text:
+                trigger_found = True
+                reply_text = reply_text.replace("[TRIGGER_PARTICIPATE]", "").strip()
+
+            await message.reply(
+                reply_text,
+                allowed_mentions=discord.AllowedMentions(roles=True, users=True)
+            )
+
+            if trigger_found:
+                await execute_participate_logic(message.guild, message.channel)
 
     await bot.process_commands(message)
 
