@@ -15,6 +15,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+STAFF_ROLE_ID = 1536186291417518081
 EXCLUDED_ROLES = ["Staff", "Admin", "Trial Moderator", "Moderator", "Ticket King"]
 PARTICIPANT_ROLE_NAME = "Participant"
 FORMER_PARTICIPANT_ROLE_NAME = "Former Participant"
@@ -34,37 +35,38 @@ AI_ALLOWED_CATEGORY_ID = 1537228656055820401
 AI_SYSTEM_PROMPT = """
 You are the official automated Event Support Bot on this Discord server. Your task is to assist players in support tickets warmly, politely, and naturally in English.
 
-IMPORTANT CONVERSATION STYLE:
-- Do NOT just copy and paste facts word-for-word like a robot!
-- Speak dynamically and conversationally. Answer the user's specific question in a friendly tone while incorporating the facts below.
+IMPORTANT CONVERSATION & FLOW RULES:
+1. ALWAYS DIRECT TO THE INFO ABOVE:
+   - When a user asks a question or opens the conversation, ALWAYS politely remind them to read the information message sent by Ticket King above!
+   - Example phrasing: "Hello! Please make sure to read the info message above—it covers most of the details you'll need! Let me know if you understand everything or if you have any questions."
+   - Answer their specific question, but ALWAYS combine it with the direction to read the info above.
+
+2. USER AGREES TO PARTICIPATE OR HAS NO MORE QUESTIONS:
+   - Trigger the participation process if the user:
+     a) Confirms/agrees (e.g., "yes", "I understand", "ok", "I agree", "I want to join") OR
+     b) States they have no further questions (e.g., "no questions", "I'm good", "no", "nothing else", "that's all").
+   - Action to take:
+     - Respond warmly, confirming they are signed up/ready for the event!
+     - Include this exact trigger word at the VERY END of your response: [TRIGGER_PARTICIPATE]
+     - Explicitly remind them: "Make sure to turn on notifications for the <#1533506634985504909> channel to not miss the next event! The next event will be announced in there soon."
+
+3. UNANSWERABLE QUESTIONS / STAFF ESCALATION:
+   - If a user asks something not covered in the rules, asks for a human/staff, or pings staff:
+     - Politely inform them that a staff member will assist them shortly and tag <@&1536186291417518081>.
 
 OFFICIAL EVENT INFORMATION & KNOWLEDGE BASE:
-
-📜 Event Information:
-- Start Date & Time: The exact date/time is announced in <#1533506634985504909>. Advise them to check there and turn on notifications!
-- 💸 Entry Fee & Discounts: Standard entry fee is 35k. Discounts are available if they invite others to our event.
+📜 Event Details:
+- Start Date & Time: Announced in <#1533506634985504909>. Advise them to check there and turn on notifications!
+- 💸 Entry Fee & Discounts: Standard fee is 35k. Discounts available for inviting others.
 - 📍 Payment Location: Paid after joining the VIP server at Howling Peak.
-- 🚪 Gate Opening: Once everyone has paid, the owner guides the group to the gate and unlocks it.
-- ⚔️ Parkour & Reward: After passing through the gate, players get infinite attempts on the parkour until claiming the sword!
-- 💰 Post-Event Cash: Players can stay in the server after getting rewards and invite others to earn cash.
-- ✅ Legitimacy Check: If worried about safety, refer them to <#1534230669729861652> to read player feedback!
+- 🚪 Gate Opening: Once everyone pays, the owner guides the group to the gate and unlocks it.
+- ⚔️ Parkour & Reward: Infinite attempts on the parkour after passing the gate until claiming the sword!
+- 💰 Post-Event Cash: Stay after getting rewards and invite others to earn cash.
+- ✅ Legitimacy Check: Refer to <#1534230669729861652> for player feedback.
 
 👥 Invite Rules & Rewards:
-- Qualified Invites: Only invite people genuinely interested in joining the event.
-- Invite Reward Rate: 3k per invited user initially. Dedicated, high-volume inviters will get a higher rate per person.
-
-🚨 SPECIAL TRIGGERS & ACTIONS:
-
-1. USER AGREES TO PARTICIPATE:
-- If the user indicates they understood everything and agree to participate (e.g., "I agree", "I understand", "ok let's do it", "I want to join"):
-  - Respond warmly confirming they are being signed up!
-  - Include this exact trigger word at the VERY END of your response: [TRIGGER_PARTICIPATE]
-  - Explicitly remind them: "Make sure to turn on notifications for the <#1533506634985504909> channel to not miss the next event! The next event will be announced in there soon."
-
-2. UNANSWERABLE QUESTIONS / STAFF ESCALATION:
-- If a user asks something not covered in these rules, asks for a human/staff, or pings staff:
-  - Politely inform them that you cannot handle this specific request and that a staff member will assist them shortly.
-  - ALWAYS include the staff tag <@&1536186291417518081> in your message!
+- Qualified Invites: Only invite people genuinely interested in participating.
+- Invite Reward Rate: 3k per invited user initially (higher for dedicated inviters).
 """
 
 # Gemini Client initialisieren
@@ -196,27 +198,36 @@ async def on_guild_channel_create(channel: discord.abc.GuildChannel):
 # -------------------------------------------------------------------
 @bot.event
 async def on_message(message: discord.Message):
-    # Bots generell ignorieren
+    # 1. Bots generell ignorieren
     if message.author.bot:
         return
 
-    # Team-Mitglieder ignorieren
-    if isinstance(message.author, discord.Member):
-        has_excluded_role = any(role.name in EXCLUDED_ROLES for role in message.author.roles)
-        if has_excluded_role or message.author.guild_permissions.administrator:
-            await bot.process_commands(message)
-            return
-
-    # Kategorie-Filter
+    # 2. Kategorie-Filter: KI antwortet nur in der festgelegten Kategorie ID
     if not message.channel.category or message.channel.category.id != AI_ALLOWED_CATEGORY_ID:
         await bot.process_commands(message)
         return
 
-    # KI-Antwort generieren
+    # 3. DYNAMISCHER STAFF-CHECK: Prüfen, ob bereits ein Staff-Mitglied im Ticket geschrieben hat
+    try:
+        async for msg in message.channel.history(limit=20):
+            if isinstance(msg.author, discord.Member):
+                # Prüfen, ob der Verfasser die Staff-Rolle hat oder Admin ist
+                has_staff_role = any(role.id == STAFF_ROLE_ID or role.name in EXCLUDED_ROLES for role in msg.author.roles)
+                if has_staff_role or msg.author.guild_permissions.administrator:
+                    # Staff hat geschrieben -> KI stummschalten!
+                    await bot.process_commands(message)
+                    return
+    except Exception as e:
+        print(f"Fehler beim Prüfen der Kanal-Historie: {e}")
+
+    # 4. KI-Antwort generieren (wenn kein Staff geantwortet hat)
     if gemini_client:
-        async with message.channel.typing():
-            try:
-                response = gemini_client.models.generate_content(
+        typing_task = asyncio.create_task(keep_typing(message.channel))
+        try:
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: gemini_client.models.generate_content(
                     model="gemini-3.8-flash",
                     contents=message.content,
                     config={
@@ -224,28 +235,29 @@ async def on_message(message: discord.Message):
                         "temperature": 0.6,
                     }
                 )
-                if response.text:
-                    reply_text = response.text
+            )
+            typing_task.cancel()
 
-                    # Prüfen, ob die KI die Teilnahme getriggert hat
-                    trigger_found = False
-                    if "[TRIGGER_PARTICIPATE]" in reply_text:
-                        trigger_found = True
-                        reply_text = reply_text.replace("[TRIGGER_PARTICIPATE]", "").strip()
+            if response.text:
+                reply_text = response.text
 
-                    # Nachricht absenden
-                    await message.reply(
-                        reply_text,
-                        allowed_mentions=discord.AllowedMentions(roles=True, users=True)
-                    )
+                trigger_found = False
+                if "[TRIGGER_PARTICIPATE]" in reply_text:
+                    trigger_found = True
+                    reply_text = reply_text.replace("[TRIGGER_PARTICIPATE]", "").strip()
 
-                    # Falls getriggert: Automatsichen Participate-Prozess ausführen
-                    if trigger_found:
-                        await execute_participate_logic(message.guild, message.channel)
+                await message.reply(
+                    reply_text,
+                    allowed_mentions=discord.AllowedMentions(roles=True, users=True)
+                )
 
-            except Exception as e:
-                print(f"Fehler bei Gemini API Aufruf: {e}")
-                await message.reply(f"⚠️ **KI-Fehler:** `{e}`")
+                if trigger_found:
+                    await execute_participate_logic(message.guild, message.channel)
+
+        except Exception as e:
+            typing_task.cancel()
+            print(f"Fehler bei Gemini API Aufruf: {e}")
+            await message.reply(f"⚠️ **KI-Fehler:** `{e}`")
 
     await bot.process_commands(message)
 
