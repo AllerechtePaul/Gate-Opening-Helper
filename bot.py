@@ -25,7 +25,11 @@ PARTICIPATE_CATEGORY_IDS = [1537245698443968583, 1538637387138072627]
 WORKER_CATEGORY_IDS = [1537242203397820446]
 SPECIAL_CATEGORY_ID = 1536184549170741269
 
+# KI-Kategorie ID (Wo die KI arbeiten darf)
 AI_ALLOWED_CATEGORY_ID = 1537228656055820401
+
+# NEU: Staff-Pause Kategorie ID (Wohin das Ticket verschoben wird, wenn Staff schreibt)
+STAFF_PAUSE_CATEGORY_ID = 1562656450562621571
 
 # =====================================================================
 # KI / GEMINI TRAINING & SYSTEM PROMPT
@@ -184,31 +188,37 @@ async def on_guild_channel_create(channel: discord.abc.GuildChannel):
     except Exception as e:
         print(f"Error sending auto-welcome: {e}")
 
-# 2. ON MESSAGE (NORMALER STAFF CHECK)
+# 2. ON MESSAGE (KATEGORIE-STEUERUNG)
 @bot.event
 async def on_message(message: discord.Message):
+    # Bots generell ignorieren
     if message.author.bot:
         return
 
+    # STRENGER KATEGORIE-FILTER: Nur verarbeiten, wenn sich das Ticket in der AI_ALLOWED_CATEGORY befindet!
     if not message.channel.category or message.channel.category.id != AI_ALLOWED_CATEGORY_ID:
         await bot.process_commands(message)
         return
 
-    # EINFACER STAFF CHECK
-    try:
-        async for msg in message.channel.history(limit=20):
-            if msg.author.bot:
-                continue
+    # Prüfen, ob die Nachricht von einem Staff-Mitglied stammt
+    is_staff = False
+    if isinstance(message.author, discord.Member):
+        has_staff_role = any(role.id == STAFF_ROLE_ID or role.name in EXCLUDED_ROLES for role in message.author.roles)
+        if has_staff_role or message.author.guild_permissions.administrator:
+            is_staff = True
 
-            if isinstance(msg.author, discord.Member):
-                has_staff_role = any(role.id == STAFF_ROLE_ID or role.name in EXCLUDED_ROLES for role in msg.author.roles)
-                if has_staff_role or msg.author.guild_permissions.administrator:
-                    await bot.process_commands(message)
-                    return
-    except Exception as e:
-        print(f"Fehler beim Prüfen der Kanal-Historie: {e}")
+    # WENN EIN STAFF SCHREIBT: Ticket in die Pause-Kategorie verschieben!
+    if is_staff:
+        pause_category = message.guild.get_channel(STAFF_PAUSE_CATEGORY_ID)
+        if pause_category and isinstance(pause_category, discord.CategoryChannel):
+            try:
+                await message.channel.edit(category=pause_category)
+            except discord.Forbidden:
+                print("Fehler: Bot hat keine Berechtigung, die Kategorie zu ändern.")
+        await bot.process_commands(message)
+        return
 
-    # KI ANTWORT
+    # KI ANTWORT GENERIEREN (Gilt nur für Nachrichten von normalen Spielern in der KI-Kategorie)
     if gemini_client:
         typing_task = asyncio.create_task(keep_typing(message.channel))
         
@@ -262,26 +272,23 @@ async def on_message(message: discord.Message):
 # SLASH COMMANDS
 # =====================================================================
 
-@bot.tree.command(name="botresume", description="Re-activates AI responses by cleaning staff messages in this channel")
+@bot.tree.command(name="botresume", description="Moves channel back to AI allowed category to re-enable AI support")
 async def botresume(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     
-    deleted_count = 0
-    # Gehe die letzten 30 Nachrichten durch und lösche alle Nachrichten von Staff-Mitgliedern
-    async for msg in interaction.channel.history(limit=30):
-        if msg.author.bot:
-            continue
-        
-        if isinstance(msg.author, discord.Member):
-            has_staff = any(role.id == STAFF_ROLE_ID or role.name in EXCLUDED_ROLES for role in msg.author.roles)
-            if has_staff or msg.author.guild_permissions.administrator:
-                try:
-                    await msg.delete()
-                    deleted_count += 1
-                except Exception:
-                    pass
-                    
-    await interaction.followup.send(f"🤖 **AI Support re-enabled!** (Removed {deleted_count} staff message(s) from history)", ephemeral=True)
+    guild = interaction.guild
+    channel = interaction.channel
+
+    ai_category = guild.get_channel(AI_ALLOWED_CATEGORY_ID)
+    if not ai_category or not isinstance(ai_category, discord.CategoryChannel):
+        await interaction.followup.send("❌ Target AI category was not found!", ephemeral=True)
+        return
+
+    try:
+        await channel.edit(category=ai_category)
+        await interaction.followup.send("🤖 **AI Support re-enabled! Channel moved back to AI category.**", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("❌ Bot misses permissions to move channel back.", ephemeral=True)
 
 
 @bot.tree.command(name="participate", description="Assigns Participant role, adds ❗️ and moves ticket to participate category")
