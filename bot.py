@@ -38,7 +38,7 @@ You are the official automated Event Support Bot on this Discord server. Your ta
 IMPORTANT CONVERSATION & FLOW RULES:
 1. ALWAYS DIRECT TO THE INFO ABOVE:
    - When a user asks a question or opens the conversation, ALWAYS politely remind them to read the information message sent by Ticket King above!
-   - Example phrasing: "Hello! Please make sure to read the info message above—it covers most of the details you'll need! Let me know if you understand everything or if you have any questions."
+   - Example phrasing: "Hello! We are glad that you would like to participate in our event. Please make sure to read the info message above—it covers most of the details you'll need! Let me know if you understand everything or if you have any questions."
    - Answer their specific question, but ALWAYS combine it with the direction to read the info above.
 
 2. USER AGREES TO PARTICIPATE OR HAS NO MORE QUESTIONS:
@@ -161,6 +161,13 @@ async def execute_participate_logic(guild, channel):
     return True, f"Assigned @{PARTICIPANT_ROLE_NAME} to {assigned_count} user(s)."
 
 
+# Task to keep typing active until response is generated
+async def keep_typing(channel):
+    while True:
+        await channel.typing()
+        await asyncio.sleep(8)
+
+
 # -------------------------------------------------------------------
 # 1. AUTOMATISCHE BEGRÜSSUNG BEI NEUEM TICKET
 # -------------------------------------------------------------------
@@ -173,12 +180,13 @@ async def on_guild_channel_create(channel: discord.abc.GuildChannel):
     if not channel.category or channel.category.id != AI_ALLOWED_CATEGORY_ID:
         return
 
-    # 2 Sekunden warten, bis Ticket King seine Nachricht gesendet hat
-    await asyncio.sleep(2)
+    # 4 Sekunden warten, damit Ticket King seine Nachricht sicher gesendet hat
+    await asyncio.sleep(4)
 
     welcome_text = (
-        "Hello! Please read this info above, that should be all details you need! "
-        "Let me know if you understand all and then don't hesitate to ask any further questions."
+        "Yes, we are glad that you would like to participate in our event!\n"
+        "Please read the info above. It should be all the details you need.\n"
+        "Let me know if you understand all and don't hesitate to ask any further questions."
     )
 
     # Versuchen, auf die Ticket-King-Nachricht zu antworten
@@ -187,7 +195,6 @@ async def on_guild_channel_create(channel: discord.abc.GuildChannel):
             if msg.author.bot:
                 await msg.reply(welcome_text)
                 return
-        # Falls keine Bot-Nachricht gefunden wurde, normal senden
         await channel.send(welcome_text)
     except Exception as e:
         print(f"Error sending auto-welcome: {e}")
