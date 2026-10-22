@@ -1,4 +1,5 @@
 import os
+import asyncio
 import discord
 from dotenv import load_dotenv
 from discord import app_commands
@@ -24,39 +25,46 @@ PARTICIPATE_CATEGORY_IDS = [1537245698443968583, 1538637387138072627]
 WORKER_CATEGORY_IDS = [1537242203397820446]
 SPECIAL_CATEGORY_ID = 1536184549170741269
 
-# Exklusive Kategorie ID für die KI-Antworten
+# Exklusive Kategorie ID für die KI-Antworten & Auto-Welcome
 AI_ALLOWED_CATEGORY_ID = 1537228656055820401
 
 # =====================================================================
 # KI / GEMINI TRAINING & SYSTEM PROMPT (ENGLISH)
 # =====================================================================
 AI_SYSTEM_PROMPT = """
-You are the official automated Event Support Bot on this Discord server. Your task is to assist players in support tickets politely, accurately, and concisely in English.
+You are the official automated Event Support Bot on this Discord server. Your task is to assist players in support tickets warmly, politely, and naturally in English.
+
+IMPORTANT CONVERSATION STYLE:
+- Do NOT just copy and paste facts word-for-word like a robot!
+- Speak dynamically and conversationally. Answer the user's specific question in a friendly tone while incorporating the facts below.
 
 OFFICIAL EVENT INFORMATION & KNOWLEDGE BASE:
 
 📜 Event Information:
-- Start Date & Time: Check <#1533506634985504909> for the start date and time!
-- 💸 Entry Fee & Discounts: The standard entry fee is 35k, but you can get discounts by inviting others to our event.
-- 📍 Payment Location: You will pay the fee after joining the VIP server at Howling Peak.
-- 🚪 Gate Opening: Once everyone has paid, the owner will guide the group to the gate and unlock it.
-- ⚔️ Parkour & Reward: After passing through the gate, you have infinite tries on the parkour until you claim the sword!
-- 💰 Post-Event Cash: After getting your rewards, feel free to stay in the server and invite others to earn cash.
-- ✅ Legitimacy Check: Hesitant or worried about safety? Take a look at <#1534230669729861652> to see feedback from other players!
+- Start Date & Time: The exact date/time is announced in <#1533506634985504909>. Advise them to check there and turn on notifications!
+- 💸 Entry Fee & Discounts: Standard entry fee is 35k. Discounts are available if they invite others to our event.
+- 📍 Payment Location: Paid after joining the VIP server at Howling Peak.
+- 🚪 Gate Opening: Once everyone has paid, the owner guides the group to the gate and unlocks it.
+- ⚔️ Parkour & Reward: After passing through the gate, players get infinite attempts on the parkour until claiming the sword!
+- 💰 Post-Event Cash: Players can stay in the server after getting rewards and invite others to earn cash.
+- ✅ Legitimacy Check: If worried about safety, refer them to <#1534230669729861652> to read player feedback!
 
 👥 Invite Rules & Rewards:
-- Qualified Invites: Only invite people who are genuinely interested in participating in the event.
-- Invite Reward Rate: You initially earn 3k per invited user. However, if you prove to be a hardworking and reliable inviter bringing in many active participants, we will increase your pay rate per person.
+- Qualified Invites: Only invite people genuinely interested in joining the event.
+- Invite Reward Rate: 3k per invited user initially. Dedicated, high-volume inviters will get a higher rate per person.
 
-🚨 STAFF REQUESTS & ESCALATIONS:
-- If a user explicitly asks for a human, a real person, or a Staff member, OR if they ping a Staff role, OR if they explicitly express that they do not want to talk to an AI anymore:
-  1. Inform them politely that a Staff member has been alerted and will be with them shortly.
-  2. ALWAYS include the exact tag <@&1536186291417518081> in your response to ping the Staff team!
+🚨 SPECIAL TRIGGERS & ACTIONS:
 
-BEHAVIORAL RULES FOR THE AI:
-- Respond politely, clearly, and keep your answers brief.
-- ALWAYS reply in English.
-- If a user asks a question that is not covered in these instructions or requires manual staff intervention, politely inform them that a moderator will be with them shortly and tag <@&1536186291417518081>.
+1. USER AGREES TO PARTICIPATE:
+- If the user indicates they understood everything and agree to participate (e.g., "I agree", "I understand", "ok let's do it", "I want to join"):
+  - Respond warmly confirming they are being signed up!
+  - Include this exact trigger word at the VERY END of your response: [TRIGGER_PARTICIPATE]
+  - Explicitly remind them: "Make sure to turn on notifications for the <#1533506634985504909> channel to not miss the next event! The next event will be announced in there soon."
+
+2. UNANSWERABLE QUESTIONS / STAFF ESCALATION:
+- If a user asks something not covered in these rules, asks for a human/staff, or pings staff:
+  - Politely inform them that you cannot handle this specific request and that a staff member will assist them shortly.
+  - ALWAYS include the staff tag <@&1536186291417518081> in your message!
 """
 
 # Gemini Client initialisieren
@@ -73,7 +81,7 @@ class EventBot(commands.Bot):
         intents = discord.Intents.default()
         intents.members = True
         intents.guilds = True
-        intents.message_content = True  # Erlaubt dem Bot das Lesen von Nachrichten für die KI
+        intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
@@ -111,68 +119,12 @@ def get_available_category(guild, category_ids):
     return None
 
 
-# -------------------------------------------------------------------
-# AUTOMATISCHE KI-ANTWORT AUF TICKETS (on_message)
-# -------------------------------------------------------------------
-@bot.event
-async def on_message(message: discord.Message):
-    # 1. Bots generell ignorieren
-    if message.author.bot:
-        return
-
-    # 2. Excluded Roles prüfen: Personen mit Team-Rollen komplett ignorieren
-    if isinstance(message.author, discord.Member):
-        has_excluded_role = any(role.name in EXCLUDED_ROLES for role in message.author.roles)
-        if has_excluded_role or message.author.guild_permissions.administrator:
-            await bot.process_commands(message)
-            return
-
-    # 3. KATEGORIE-FILTER: KI antwortet AUSSCHLIESSLICH in der festgelegten Kategorie ID
-    if not message.channel.category or message.channel.category.id != AI_ALLOWED_CATEGORY_ID:
-        await bot.process_commands(message)
-        return
-
-    # 4. Wenn Gemini aktiviert ist, KI-Antwort generieren
-    if gemini_client:
-        async with message.channel.typing():
-            try:
-                response = gemini_client.models.generate_content(
-                    model="gemini-3.8-flash",
-                    contents=message.content,
-                    config={
-                        "system_instruction": AI_SYSTEM_PROMPT,
-                        "temperature": 0.5,
-                    }
-                )
-                if response.text:
-                    await message.reply(
-                        response.text,
-                        allowed_mentions=discord.AllowedMentions(roles=True, users=True)
-                    )
-            except Exception as e:
-                print(f"Fehler bei Gemini API Aufruf: {e}")
-                # Sendet den exakten Fehler direkt ins Ticket zum Debuggen
-                await message.reply(f"⚠️ **KI-Fehler:** `{e}`")
-
-    await bot.process_commands(message)
-
-
-# -------------------------------------------------------------------
-# 1. COMMAND: /participate
-# -------------------------------------------------------------------
-@bot.tree.command(name="participate", description="Assigns Participant role, adds ❗️ and moves ticket to participate category")
-async def participate(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-
-    guild = interaction.guild
-    channel = interaction.channel
-
+# Helper function for executing participation logic (Role, Rename, Move)
+async def execute_participate_logic(guild, channel):
     target_role = discord.utils.get(guild.roles, name=PARTICIPANT_ROLE_NAME)
     if not target_role:
-        await interaction.followup.send(f"❌ Role **'@{PARTICIPANT_ROLE_NAME}'** was not found on this server!", ephemeral=True)
-        return
+        return False, f"Role **'@{PARTICIPANT_ROLE_NAME}'** not found!"
 
-    # Assign role
     assigned_count = 0
     for member in channel.members:
         if member.bot:
@@ -187,54 +139,133 @@ async def participate(interaction: discord.Interaction):
                 await member.add_roles(target_role)
                 assigned_count += 1
             except discord.Forbidden:
-                print(f"Error: Could not assign role to {member.name}.")
+                pass
 
-    # Rename channel without duplicating emojis
     clean_name = clean_channel_name(channel.name)
     new_name = f"❗️{clean_name}"
-    channel_renamed = False
-
     if channel.name != new_name:
         try:
             await channel.edit(name=new_name)
-            channel_renamed = True
         except discord.Forbidden:
             pass
 
-    # Find available Participate Category
     target_category = get_available_category(guild, PARTICIPATE_CATEGORY_IDS)
-    channel_moved = False
-
-    if not target_category:
-        await interaction.followup.send("❌ All Participant categories are full (50/50)! Please create a new Participant category.", ephemeral=True)
-        return
-
-    if channel.category_id != target_category.id:
+    if target_category and channel.category_id != target_category.id:
         try:
             await channel.edit(category=target_category)
-            channel_moved = True
         except discord.Forbidden:
-            print(f"Error: Could not move channel {channel.name} to category.")
+            pass
 
-    # Response
-    msg = f"✅ Role **@{target_role.name}** assigned to **{assigned_count}** new participant(s)!"
-    if channel_renamed:
-        msg += f"\n🏷️ Ticket renamed to **{new_name}**."
-    if channel_moved:
-        msg += f"\n📁 Moved to category **{target_category.name}**."
+    return True, f"Assigned @{PARTICIPANT_ROLE_NAME} to {assigned_count} user(s)."
+
+
+# -------------------------------------------------------------------
+# 1. AUTOMATISCHE BEGRÜSSUNG BEI NEUEM TICKET
+# -------------------------------------------------------------------
+@bot.event
+async def on_guild_channel_create(channel: discord.abc.GuildChannel):
+    if not isinstance(channel, discord.TextChannel):
+        return
+
+    # Nur in der Ticket-Kategorie ausführen
+    if not channel.category or channel.category.id != AI_ALLOWED_CATEGORY_ID:
+        return
+
+    # 2 Sekunden warten, bis Ticket King seine Nachricht gesendet hat
+    await asyncio.sleep(2)
+
+    welcome_text = (
+        "Hello! Please read this info above, that should be all details you need! "
+        "Let me know if you understand all and then don't hesitate to ask any further questions."
+    )
+
+    # Versuchen, auf die Ticket-King-Nachricht zu antworten
+    try:
+        async for msg in channel.history(limit=5, oldest_first=True):
+            if msg.author.bot:
+                await msg.reply(welcome_text)
+                return
+        # Falls keine Bot-Nachricht gefunden wurde, normal senden
+        await channel.send(welcome_text)
+    except Exception as e:
+        print(f"Error sending auto-welcome: {e}")
+
+
+# -------------------------------------------------------------------
+# 2. AUTOMATISCHE KI-ANTWORT AUF TICKETS (on_message)
+# -------------------------------------------------------------------
+@bot.event
+async def on_message(message: discord.Message):
+    # Bots generell ignorieren
+    if message.author.bot:
+        return
+
+    # Team-Mitglieder ignorieren
+    if isinstance(message.author, discord.Member):
+        has_excluded_role = any(role.name in EXCLUDED_ROLES for role in message.author.roles)
+        if has_excluded_role or message.author.guild_permissions.administrator:
+            await bot.process_commands(message)
+            return
+
+    # Kategorie-Filter
+    if not message.channel.category or message.channel.category.id != AI_ALLOWED_CATEGORY_ID:
+        await bot.process_commands(message)
+        return
+
+    # KI-Antwort generieren
+    if gemini_client:
+        async with message.channel.typing():
+            try:
+                response = gemini_client.models.generate_content(
+                    model="gemini-3.8-flash",
+                    contents=message.content,
+                    config={
+                        "system_instruction": AI_SYSTEM_PROMPT,
+                        "temperature": 0.6,
+                    }
+                )
+                if response.text:
+                    reply_text = response.text
+
+                    # Prüfen, ob die KI die Teilnahme getriggert hat
+                    trigger_found = False
+                    if "[TRIGGER_PARTICIPATE]" in reply_text:
+                        trigger_found = True
+                        reply_text = reply_text.replace("[TRIGGER_PARTICIPATE]", "").strip()
+
+                    # Nachricht absenden
+                    await message.reply(
+                        reply_text,
+                        allowed_mentions=discord.AllowedMentions(roles=True, users=True)
+                    )
+
+                    # Falls getriggert: Automatsichen Participate-Prozess ausführen
+                    if trigger_found:
+                        await execute_participate_logic(message.guild, message.channel)
+
+            except Exception as e:
+                print(f"Fehler bei Gemini API Aufruf: {e}")
+                await message.reply(f"⚠️ **KI-Fehler:** `{e}`")
+
+    await bot.process_commands(message)
+
+
+# -------------------------------------------------------------------
+# SLASH COMMANDS (/participate, /worker, /paid, /sayall, etc.)
+# -------------------------------------------------------------------
+@bot.tree.command(name="participate", description="Assigns Participant role, adds ❗️ and moves ticket to participate category")
+async def participate(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    success, msg = await execute_participate_logic(interaction.guild, interaction.channel)
+    if success:
+        await interaction.followup.send(f"✅ {msg}", ephemeral=True)
     else:
-        msg += f"\nℹ️ Ticket is already in **{target_category.name}**."
-
-    await interaction.followup.send(msg, ephemeral=True)
+        await interaction.followup.send(f"❌ {msg}", ephemeral=True)
 
 
-# -------------------------------------------------------------------
-# 2. COMMAND: /worker
-# -------------------------------------------------------------------
 @bot.tree.command(name="worker", description="Assigns Employee role, adds ⭐ and moves ticket to worker category")
 async def worker(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-
     guild = interaction.guild
     channel = interaction.channel
 
@@ -243,12 +274,10 @@ async def worker(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Role **'@{EMPLOYEE_ROLE_NAME}'** was not found on this server!", ephemeral=True)
         return
 
-    # Assign role
     assigned_count = 0
     for member in channel.members:
         if member.bot:
             continue
-
         has_excluded_role = any(role.name in EXCLUDED_ROLES or role.name == EMPLOYEE_ROLE_NAME for role in member.roles)
         if member.guild_permissions.administrator:
             has_excluded_role = True
@@ -258,54 +287,33 @@ async def worker(interaction: discord.Interaction):
                 await member.add_roles(target_role)
                 assigned_count += 1
             except discord.Forbidden:
-                print(f"Error: Could not assign role to {member.name}.")
+                pass
 
-    # Rename channel without duplicating emojis
     clean_name = clean_channel_name(channel.name)
     new_name = f"⭐{clean_name}"
-    channel_renamed = False
-
     if channel.name != new_name:
         try:
             await channel.edit(name=new_name)
-            channel_renamed = True
         except discord.Forbidden:
             pass
 
-    # Find available Worker Category
     target_category = get_available_category(guild, WORKER_CATEGORY_IDS)
-    channel_moved = False
-
     if not target_category:
-        await interaction.followup.send("❌ All Worker categories are full (50/50)! Please create a new Worker category.", ephemeral=True)
+        await interaction.followup.send("❌ All Worker categories are full (50/50)!", ephemeral=True)
         return
 
     if channel.category_id != target_category.id:
         try:
             await channel.edit(category=target_category)
-            channel_moved = True
         except discord.Forbidden:
-            print(f"Error: Could not move channel {channel.name} to category.")
+            pass
 
-    # Response
-    msg = f"✅ Role **@{target_role.name}** assigned to **{assigned_count}** new worker(s)!"
-    if channel_renamed:
-        msg += f"\n🏷️ Ticket renamed to **{new_name}**."
-    if channel_moved:
-        msg += f"\n📁 Moved to category **{target_category.name}**."
-    else:
-        msg += f"\nℹ️ Ticket is already in **{target_category.name}**."
-
-    await interaction.followup.send(msg, ephemeral=True)
+    await interaction.followup.send(f"✅ Role **@{target_role.name}** assigned to **{assigned_count}** new worker(s)!", ephemeral=True)
 
 
-# -------------------------------------------------------------------
-# 3. COMMAND: /paid
-# -------------------------------------------------------------------
 @bot.tree.command(name="paid", description="Marks ticket as paid and converts Participant to Former Participant")
 async def paid(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-
     guild = interaction.guild
     channel = interaction.channel
 
@@ -313,61 +321,36 @@ async def paid(interaction: discord.Interaction):
     former_role = discord.utils.get(guild.roles, name=FORMER_PARTICIPANT_ROLE_NAME)
 
     if not participant_role or not former_role:
-        await interaction.followup.send(
-            f"❌ Missing role(s): Please ensure both **'@{PARTICIPANT_ROLE_NAME}'** "
-            f"and **'@{FORMER_PARTICIPANT_ROLE_NAME}'** exist on this server!",
-            ephemeral=True
-        )
+        await interaction.followup.send("❌ Missing role(s) on server!", ephemeral=True)
         return
 
     swapped_count = 0
     for member in channel.members:
         if member.bot:
             continue
-
         if participant_role in member.roles:
             try:
                 await member.remove_roles(participant_role)
                 await member.add_roles(former_role)
                 swapped_count += 1
             except discord.Forbidden:
-                print(f"Error: Could not update roles for {member.name}.")
+                pass
 
     clean_name = clean_channel_name(channel.name)
     new_name = f"✅{clean_name}"
-    channel_renamed = False
-
     if channel.name != new_name:
         try:
             await channel.edit(name=new_name)
-            channel_renamed = True
         except discord.Forbidden:
             pass
 
-    msg = f"✅ Roles updated from `@{PARTICIPANT_ROLE_NAME}` to `@{FORMER_PARTICIPANT_ROLE_NAME}` for **{swapped_count} user(s)**."
-    if channel_renamed:
-        msg += f"\n🏷️ Ticket renamed to **{new_name}**."
-    else:
-        msg += "\n⚠️ Ticket already has the ✅ mark."
-
-    await interaction.followup.send(msg, ephemeral=True)
+    await interaction.followup.send(f"✅ Roles updated to `@{FORMER_PARTICIPANT_ROLE_NAME}` for **{swapped_count} user(s)**.", ephemeral=True)
 
 
-# -------------------------------------------------------------------
-# 4. COMMAND: /sayall
-# -------------------------------------------------------------------
 @bot.tree.command(name="sayall", description="Sends a message to tickets or a specific category")
-@app_commands.describe(
-    message="The message to send",
-    category_id="OPTIONAL: Category ID (leave empty for uncategorized tickets)"
-)
-async def sayall(
-    interaction: discord.Interaction, 
-    message: str, 
-    category_id: str = None
-):
+@app_commands.describe(message="The message to send", category_id="OPTIONAL: Category ID")
+async def sayall(interaction: discord.Interaction, message: str, category_id: str = None):
     await interaction.response.defer(ephemeral=True)
-
     guild = interaction.guild
     sent_count = 0
 
@@ -376,12 +359,11 @@ async def sayall(
         try:
             target_category_id = int(category_id.strip())
         except ValueError:
-            await interaction.followup.send("❌ Invalid Category ID! It must contain numbers only.", ephemeral=True)
+            await interaction.followup.send("❌ Invalid Category ID!", ephemeral=True)
             return
 
     for channel in guild.text_channels:
         is_target = False
-
         if target_category_id is not None:
             if channel.category and channel.category.id == target_category_id:
                 is_target = True
@@ -396,75 +378,50 @@ async def sayall(
             except discord.Forbidden:
                 pass
 
-    if target_category_id:
-        await interaction.followup.send(f"📢 Message successfully sent to **{sent_count} channel(s)** in the specified category!", ephemeral=True)
-    else:
-        await interaction.followup.send(f"📢 Message successfully sent to **{sent_count} uncategorized ticket(s)**!", ephemeral=True)
+    await interaction.followup.send(f"📢 Message sent to **{sent_count} channel(s)**!", ephemeral=True)
 
 
-# -------------------------------------------------------------------
-# 5. COMMAND: /specialticket
-# -------------------------------------------------------------------
-@bot.tree.command(name="specialticket", description="Moves the current ticket to the Special Category")
+@bot.tree.command(name="specialticket", description="Moves current ticket to Special Category")
 async def specialticket(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-
     guild = interaction.guild
     channel = interaction.channel
 
     target_category = guild.get_channel(SPECIAL_CATEGORY_ID)
-
     if not target_category or not isinstance(target_category, discord.CategoryChannel):
-        await interaction.followup.send(f"❌ Category with ID `{SPECIAL_CATEGORY_ID}` was not found!", ephemeral=True)
-        return
-
-    if channel.category_id == SPECIAL_CATEGORY_ID:
-        await interaction.followup.send("⚠️ This ticket is already in the Special Category!", ephemeral=True)
+        await interaction.followup.send("❌ Special category not found!", ephemeral=True)
         return
 
     try:
         await channel.edit(category=target_category)
-        await interaction.followup.send(f"📁 Ticket successfully moved to **{target_category.name}**!", ephemeral=True)
+        await interaction.followup.send(f"📁 Moved to **{target_category.name}**!", ephemeral=True)
     except discord.Forbidden:
-        await interaction.followup.send("❌ The bot does not have permissions to move this channel.", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"❌ Error while moving ticket: {e}", ephemeral=True)
+        await interaction.followup.send("❌ No permissions to move channel.", ephemeral=True)
 
 
-# -------------------------------------------------------------------
-# 6. COMMAND: /movechannel
-# -------------------------------------------------------------------
-@bot.tree.command(name="movechannel", description="Moves the current channel to a specific category ID")
-@app_commands.describe(category_id="The ID of the target category")
+@bot.tree.command(name="movechannel", description="Moves current channel to specific category ID")
+@app_commands.describe(category_id="The ID of target category")
 async def movechannel(interaction: discord.Interaction, category_id: str):
     await interaction.response.defer(ephemeral=True)
-
     guild = interaction.guild
     channel = interaction.channel
 
     try:
         parsed_category_id = int(category_id.strip())
     except ValueError:
-        await interaction.followup.send("❌ Invalid Category ID! It must contain numbers only.", ephemeral=True)
+        await interaction.followup.send("❌ Invalid Category ID!", ephemeral=True)
         return
 
     target_category = guild.get_channel(parsed_category_id)
-
     if not target_category or not isinstance(target_category, discord.CategoryChannel):
-        await interaction.followup.send(f"❌ Category with ID `{parsed_category_id}` was not found!", ephemeral=True)
-        return
-
-    if channel.category_id == parsed_category_id:
-        await interaction.followup.send("⚠️ This channel is already in the specified category!", ephemeral=True)
+        await interaction.followup.send("❌ Category not found!", ephemeral=True)
         return
 
     try:
         await channel.edit(category=target_category)
-        await interaction.followup.send(f"📁 Channel successfully moved to **{target_category.name}**!", ephemeral=True)
+        await interaction.followup.send(f"📁 Moved to **{target_category.name}**!", ephemeral=True)
     except discord.Forbidden:
-        await interaction.followup.send("❌ The bot does not have permissions to move this channel.", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"❌ Error while moving channel: {e}", ephemeral=True)
+        await interaction.followup.send("❌ No permissions to move channel.", ephemeral=True)
 
 
 # Start Bot
