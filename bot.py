@@ -4,11 +4,15 @@ from dotenv import load_dotenv
 from discord import app_commands
 from discord.ext import commands
 
+# Google Gemini SDK
+from google import genai
+
 # =====================================================================
 # SETTINGS
 # =====================================================================
 load_dotenv()
 BOT_TOKEN = os.getenv("DISCORD_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 EXCLUDED_ROLES = ["Staff", "Admin", "Trial Moderator", "Moderator", "Ticket King"]
 PARTICIPANT_ROLE_NAME = "Participant"
@@ -17,8 +21,51 @@ EMPLOYEE_ROLE_NAME = "Employee"
 
 # Eigene Kategorie-Listen für jeden Befehl!
 PARTICIPATE_CATEGORY_IDS = [1537245698443968583, 1538637387138072627]
-WORKER_CATEGORY_IDS = [1537242203397820446]  # Falls voll, erstelle Worker 2 und trage hier die ID ein!
+WORKER_CATEGORY_IDS = [1537242203397820446]
 SPECIAL_CATEGORY_ID = 1536184549170741269
+
+# Alle Ticket-Kategorien zusammengefasst für die KI
+ALL_TICKET_CATEGORY_IDS = PARTICIPATE_CATEGORY_IDS + WORKER_CATEGORY_IDS + [SPECIAL_CATEGORY_ID]
+
+# =====================================================================
+# KI / GEMINI TRAINING & SYSTEM PROMPT (ENGLISH)
+# =====================================================================
+AI_SYSTEM_PROMPT = """
+You are the official automated Event Support Bot on this Discord server. Your task is to assist players in support tickets politely, accurately, and concisely in English.
+
+OFFICIAL EVENT INFORMATION & KNOWLEDGE BASE:
+
+📜 Event Information:
+- Start Date & Time: Check <#1533506634985504909> for the start date and time!
+- 💸 Entry Fee & Discounts: The standard entry fee is 35k, but you can get discounts by inviting others to our event.
+- 📍 Payment Location: You will pay the fee after joining the VIP server at Howling Peak.
+- 🚪 Gate Opening: Once everyone has paid, the owner will guide the group to the gate and unlock it.
+- ⚔️ Parkour & Reward: After passing through the gate, you have infinite tries on the parkour until you claim the sword!
+- 💰 Post-Event Cash: After getting your rewards, feel free to stay in the server and invite others to earn cash.
+- ✅ Legitimacy Check: Hesitant or worried about safety? Take a look at <#1534230669729861652> to see feedback from other players!
+
+👥 Invite Rules & Rewards:
+- Qualified Invites: Only invite people who are genuinely interested in participating in the event.
+- Invite Reward Rate: You initially earn 3k per invited user. However, if you prove to be a hardworking and reliable inviter bringing in many active participants, we will increase your pay rate per person.
+
+🚨 STAFF REQUESTS & ESCALATIONS:
+- If a user explicitly asks for a human, a real person, or a Staff member, OR if they ping a Staff role, OR if they explicitly express that they do not want to talk to an AI anymore:
+  1. Inform them politely that a Staff member has been alerted and will be with them shortly.
+  2. ALWAYS include the exact tag <@&1536186291417518081> in your response to ping the Staff team!
+
+BEHAVIORAL RULES FOR THE AI:
+- Respond politely, clearly, and keep your answers brief.
+- ALWAYS reply in English.
+- If a user asks a question that is not covered in these instructions or requires manual staff intervention, politely inform them that a moderator will be with them shortly and tag <@&1536186291417518081>.
+"""
+
+# Gemini Client initialisieren
+gemini_client = None
+if GEMINI_API_KEY:
+    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+else:
+    print("WARNING: No GEMINI_API_KEY found. AI responses are disabled!")
+
 # =====================================================================
 
 class EventBot(commands.Bot):
@@ -26,6 +73,7 @@ class EventBot(commands.Bot):
         intents = discord.Intents.default()
         intents.members = True
         intents.guilds = True
+        intents.message_content = True  # Erlaubt dem Bot das Lesen von Nachrichten für die KI
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
@@ -61,6 +109,57 @@ def get_available_category(guild, category_ids):
             if len(category.channels) < 50:
                 return category
     return None
+
+
+# -------------------------------------------------------------------
+# AUTOMATISCHE KI-ANTWORT AUF TICKETS (on_message)
+# -------------------------------------------------------------------
+@bot.event
+async def on_message(message: discord.Message):
+    # 1. Bots generell ignorieren
+    if message.author.bot:
+        return
+
+    # 2. Excluded Roles prüfen: Personen mit Team-Rollen komplett ignorieren
+    if isinstance(message.author, discord.Member):
+        has_excluded_role = any(role.name in EXCLUDED_ROLES for role in message.author.roles)
+        if has_excluded_role or message.author.guild_permissions.administrator:
+            await bot.process_commands(message)
+            return
+
+    # 3. Prüfen, ob die Nachricht in einer der Ticket-Kategorien oder in einem unkategorisierten Ticket steht
+    in_ticket_category = False
+    if message.channel.category:
+        if message.channel.category.id in ALL_TICKET_CATEGORY_IDS:
+            in_ticket_category = True
+    else:
+        in_ticket_category = True
+
+    if not in_ticket_category:
+        await bot.process_commands(message)
+        return
+
+    # 4. Wenn Gemini aktiviert ist, KI-Antwort generieren
+    if gemini_client:
+        async with message.channel.typing():
+            try:
+                response = gemini_client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=message.content,
+                    config={
+                        "system_instruction": AI_SYSTEM_PROMPT,
+                        "temperature": 0.5,
+                    }
+                )
+                if response.text:
+                    await message.reply(
+                        response.text,
+                        allowed_mentions=discord.AllowedMentions(roles=True, users=True)
+                    )
+            except Exception as e:
+                print(f"Fehler bei Gemini API Aufruf: {e}")
+
+    await bot.process_commands(message)
 
 
 # -------------------------------------------------------------------
