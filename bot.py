@@ -214,14 +214,18 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
-    # 3. DYNAMISCHER STAFF-CHECK: Prüfen, ob bereits ein Staff-Mitglied im Ticket geschrieben hat
+# 3. DYNAMISCHER STAFF-CHECK: Prüfen, ob bereits ein Staff-Mitglied im Ticket geschrieben hat
     try:
         async for msg in message.channel.history(limit=20):
+            # Bot-Nachrichten (Ticket King, eigener Bot, etc.) bei der Prüfung komplett ignorieren
+            if msg.author.bot:
+                continue
+
             if isinstance(msg.author, discord.Member):
-                # Prüfen, ob der Verfasser die Staff-Rolle hat oder Admin ist
+                # Prüfen, ob der Verfasser die Staff-Rolle/Excluded-Rolle hat oder Admin ist
                 has_staff_role = any(role.id == STAFF_ROLE_ID or role.name in EXCLUDED_ROLES for role in msg.author.roles)
                 if has_staff_role or msg.author.guild_permissions.administrator:
-                    # Staff hat geschrieben -> KI stummschalten!
+                    # Ein echter Staff-User hat geschrieben -> KI stummschalten!
                     await bot.process_commands(message)
                     return
     except Exception as e:
